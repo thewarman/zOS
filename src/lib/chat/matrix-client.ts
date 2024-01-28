@@ -129,25 +129,6 @@ export class MatrixClient implements IChatClient {
     return admins;
   }
 
-  // NOTE: This can be removed after a few releases,
-  // since it will fix the "already existing" conversation groups,
-  // and we create a new room with the appropriate power_levels now.
-  private async setPowerLevels(rooms: Room[]) {
-    for (const room of rooms) {
-      const powerLevels = this.getLatestEvent(room, EventType.RoomPowerLevels);
-      if (!powerLevels || this.userId === room.getCreator()) {
-        continue;
-      }
-
-      const powerLevelsByUser = powerLevels.getContent()?.users || {};
-      // if the user is in the room and has a power level > 0,
-      // AND the user is not the creator of the room, set their power level to 0
-      if (powerLevelsByUser[this.userId] && powerLevelsByUser[this.userId] !== PowerLevels.Viewer) {
-        await this.matrix.setPowerLevel(room.roomId, this.userId, PowerLevels.Viewer);
-      }
-    }
-  }
-
   async getConversations() {
     await this.waitForConnection();
     const rooms = await this.getRoomsUserIsIn();
@@ -168,7 +149,6 @@ export class MatrixClient implements IChatClient {
     }
 
     const filteredRooms = rooms.filter((r) => !failedToJoin.includes(r.roomId));
-    await this.setPowerLevels(filteredRooms);
     return await Promise.all(filteredRooms.map((r) => this.mapConversation(r)));
   }
 
@@ -268,7 +248,12 @@ export class MatrixClient implements IChatClient {
 
   async searchMentionableUsersForChannel(channelId: string, search: string, channelMembers: UserModel[]) {
     const searchResults = await getFilteredMembersForAutoComplete(channelMembers, search);
-    return searchResults.map((u) => ({ id: u.id, display: u.displayName, profileImage: u.profileImage }));
+    return searchResults.map((u) => ({
+      id: u.id,
+      display: u.displayName,
+      profileImage: u.profileImage,
+      primaryZID: u.primaryZID,
+    }));
   }
 
   private getRelatedEventId(event): string {
@@ -396,14 +381,19 @@ export class MatrixClient implements IChatClient {
     const options: ICreateRoomOpts = {
       preset: Preset.TrustedPrivateChat,
       visibility: Visibility.Private,
-      invite: users.map((u) => u.matrixId),
+      invite: [],
       is_direct: true,
       initial_state,
       power_level_content_override: {
         users: {
-          ...users.reduce((acc, u) => ({ ...acc, [u.matrixId]: PowerLevels.Viewer }), {}),
           [this.userId]: PowerLevels.Owner,
         },
+        invite: PowerLevels.Owner, // default is PL0
+        // all below except users_default, default to PL50
+        kick: PowerLevels.Owner,
+        redact: PowerLevels.Owner,
+        ban: PowerLevels.Owner,
+        users_default: PowerLevels.Viewer,
       },
     };
     if (name) {
@@ -416,6 +406,9 @@ export class MatrixClient implements IChatClient {
 
     const room = this.matrix.getRoom(result.room_id);
     this.initializeRoomEventHandlers(room);
+    for (const user of users) {
+      await this.matrix.invite(result.room_id, user.matrixId);
+    }
     return await this.mapConversation(room);
   }
 
@@ -613,6 +606,18 @@ export class MatrixClient implements IChatClient {
     await this.matrix.redactEvent(roomId, messageId);
   }
 
+  async getRoomIdForAlias(alias: string): Promise<string | undefined> {
+    await this.waitForConnection();
+    return await this.matrix
+      .getRoomIdForAlias(alias) // { room_id, servers[] }
+      .catch((err) => {
+        if (err.errcode === 'M_NOT_FOUND' || err.errcode === 'M_INVALID_PARAM') {
+          Promise.resolve(undefined);
+        }
+      })
+      .then((response) => response && response.room_id);
+  }
+
   async fetchConversationsWithUsers(users: User[]) {
     const userMatrixIds = users.map((u) => u.matrixId);
     const rooms = await this.getRoomsUserIsIn();
@@ -704,7 +709,9 @@ export class MatrixClient implements IChatClient {
         this.debug('encryped message: ', event);
       }
       if (event.type === EventType.RoomCreate) {
-        await this.roomCreated(event);
+      }
+      if (event.type === EventType.RoomMember) {
+        await this.publishMembershipChange(event);
       }
       if (event.type === EventType.RoomAvatar) {
         this.publishRoomAvatarChange(event);
@@ -718,9 +725,7 @@ export class MatrixClient implements IChatClient {
 
     this.matrix.on(RoomMemberEvent.Membership, async (_event, member) => {
       if (member.membership === MembershipStateType.Invite && member.userId === this.userId) {
-        if (await this.autoJoinRoom(member.roomId)) {
-          this.events.onUserReceivedInvitation(member.roomId);
-        }
+        await this.autoJoinRoom(member.roomId);
       }
     });
 
@@ -733,7 +738,7 @@ export class MatrixClient implements IChatClient {
 
     this.matrix.on(ClientEvent.Event, this.publishUserPresenceChange);
     this.matrix.on(RoomEvent.Name, this.publishRoomNameChange);
-    this.matrix.on(RoomStateEvent.Members, this.publishMembershipChange);
+    //this.matrix.on(RoomStateEvent.Members, this.publishMembershipChange);
     this.matrix.on(RoomEvent.Timeline, this.processRoomTimelineEvent.bind(this));
 
     // Log events during development to help with understanding which events are happening
@@ -834,12 +839,6 @@ export class MatrixClient implements IChatClient {
     });
   }
 
-  private async roomCreated(event) {
-    const room = this.matrix.getRoom(event.room_id);
-    this.initializeRoomEventHandlers(room);
-    this.events.onUserJoinedChannel(await this.mapConversation(room));
-  }
-
   private receiveDeleteMessage = (event) => {
     this.events.receiveDeleteMessage(event.room_id, event.redacts);
   };
@@ -867,25 +866,34 @@ export class MatrixClient implements IChatClient {
     this.events.onRoomAvatarChanged(event.room_id, event.content?.url);
   };
 
-  private publishMembershipChange = async (event: MatrixEvent) => {
-    if (event.getType() === EventType.RoomMember) {
-      const user = this.mapUser(event.getStateKey());
-      if (event.getStateKey() !== this.userId) {
-        if (event.getContent().membership === MembershipStateType.Leave) {
-          this.events.onOtherUserLeftChannel(event.getRoomId(), user);
-        } else {
-          this.events.onOtherUserJoinedChannel(event.getRoomId(), user);
-        }
+  private publishMembershipChange = async (event) => {
+    const user = this.mapUser(event.state_key);
+    const membership = event.content.membership;
+    const roomId = event.room_id;
+
+    if (event.state_key !== this.userId) {
+      if (membership === MembershipStateType.Leave) {
+        this.events.onOtherUserLeftChannel(roomId, user);
       } else {
-        if (event.getContent().membership === MembershipStateType.Leave) {
-          this.events.onUserLeft(event.getRoomId(), user.matrixId);
-        }
+        this.events.onOtherUserJoinedChannel(roomId, user);
+      }
+    } else {
+      if (membership === MembershipStateType.Leave) {
+        this.events.onUserLeft(roomId, user.matrixId);
       }
 
-      const message = await mapEventToAdminMessage(event.getEffectiveEvent());
-      if (message) {
-        this.events.receiveNewMessage(event.getRoomId(), message);
+      if (membership === MembershipStateType.Join) {
+        const room = this.matrix.getRoom(roomId);
+        if (room) {
+          this.events.onUserJoinedChannel(await this.mapConversation(room));
+          this.initializeRoomEventHandlers(room);
+        }
       }
+    }
+
+    const message = await mapEventToAdminMessage(event);
+    if (message) {
+      this.events.receiveNewMessage(roomId, message);
     }
   };
 
@@ -932,6 +940,7 @@ export class MatrixClient implements IChatClient {
       isOnline: false,
       profileImage: user?.avatarUrl,
       lastSeenAt: '',
+      primaryZID: '',
     };
   }
 

@@ -10,7 +10,6 @@ export interface RealtimeChatEvents {
   receiveDeleteMessage: (roomId: string, messageId: string) => void;
   onMessageUpdated: (channelId: string, message: Message) => void;
   receiveUnreadCount: (channelId: string, unreadCount: number) => void;
-  onUserReceivedInvitation: (channel) => void;
   onUserJoinedChannel: (conversation) => void;
   invalidChatAccessToken: () => void;
   onUserLeft: (channelId: string, userId: string) => void;
@@ -80,6 +79,7 @@ export interface IChatClient {
   generateSecureBackup: () => Promise<any>;
   saveSecureBackup: (MatrixKeyBackupInfo) => Promise<void>;
   restoreSecureBackup: (recoveryKey: string) => Promise<void>;
+  getRoomIdForAlias: (alias: string) => Promise<string | undefined>;
 }
 
 export class Chat {
@@ -192,6 +192,10 @@ export class Chat {
     return this.matrix.displayDeviceList(userIds);
   }
 
+  async getRoomIdForAlias(alias: string) {
+    return this.matrix.getRoomIdForAlias(alias);
+  }
+
   async displayRoomKeys(roomId: string) {
     return this.matrix.displayRoomKeys(roomId);
   }
@@ -264,4 +268,8 @@ export const chat = {
 
 export async function fetchConversationsWithUsers(users: User[]) {
   return chat.get().fetchConversationsWithUsers(users);
+}
+
+export async function getRoomIdForAlias(alias: string) {
+  return chat.get().getRoomIdForAlias(alias);
 }

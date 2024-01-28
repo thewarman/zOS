@@ -13,6 +13,7 @@ import {
   otherUserLeftChannel,
   mapToZeroUsers,
   fetchUserPresence,
+  waitForChannelListLoad,
 } from './saga';
 
 import { RootState, rootReducer } from '../reducer';
@@ -24,6 +25,7 @@ import { expectSaga } from '../../test/saga';
 import { getZEROUsers } from './api';
 import { mapAdminUserIdToZeroUserId, mapChannelMembers } from './utils';
 import { openFirstConversation } from '../channels/saga';
+import { AsyncListStatus } from '../normalized';
 
 const mockChannel = (id: string) => ({
   id: `channel_${id}`,
@@ -341,6 +343,7 @@ describe('channels list saga', () => {
         profileId: 'profile-1',
         firstName: 'first-1',
         lastName: 'last-1',
+        primaryZID: 'primary-zid-1',
       },
       {
         userId: 'user-2',
@@ -348,6 +351,7 @@ describe('channels list saga', () => {
         profileId: 'profile-2',
         firstName: 'first-2',
         lastName: 'last-2',
+        primaryZID: 'primary-zid-2',
       },
       {
         userId: 'user-3',
@@ -355,6 +359,7 @@ describe('channels list saga', () => {
         profileId: 'profile-3',
         firstName: 'first-3',
         lastName: 'last-3',
+        primaryZID: '',
       },
     ] as any;
 
@@ -373,6 +378,7 @@ describe('channels list saga', () => {
           profileId: 'profile-1',
           firstName: 'first-1',
           lastName: 'last-1',
+          primaryZID: 'primary-zid-1',
         },
         'matrix-id-2': {
           userId: 'user-2',
@@ -380,6 +386,7 @@ describe('channels list saga', () => {
           profileId: 'profile-2',
           firstName: 'first-2',
           lastName: 'last-2',
+          primaryZID: 'primary-zid-2',
         },
         'matrix-id-3': {
           userId: 'user-3',
@@ -387,6 +394,7 @@ describe('channels list saga', () => {
           profileId: 'profile-3',
           firstName: 'first-3',
           lastName: 'last-3',
+          primaryZID: '',
         },
       };
 
@@ -414,6 +422,7 @@ describe('channels list saga', () => {
           firstName: 'first-1',
           lastName: 'last-1',
           profileImage: undefined,
+          primaryZID: 'primary-zid-1',
         },
         {
           matrixId: 'matrix-id-2',
@@ -422,6 +431,7 @@ describe('channels list saga', () => {
           firstName: 'first-2',
           lastName: 'last-2',
           profileImage: undefined,
+          primaryZID: 'primary-zid-2',
         },
       ]);
 
@@ -434,6 +444,7 @@ describe('channels list saga', () => {
           firstName: 'first-3',
           lastName: 'last-3',
           profileImage: undefined,
+          primaryZID: '',
         },
       ]);
     });
@@ -458,6 +469,7 @@ describe('channels list saga', () => {
         firstName: 'first-1',
         lastName: 'last-1',
         profileImage: undefined,
+        primaryZID: 'primary-zid-1',
       });
       expect(channels[0].messages[1].sender).toStrictEqual({
         userId: 'user-2',
@@ -465,6 +477,7 @@ describe('channels list saga', () => {
         firstName: 'first-2',
         lastName: 'last-2',
         profileImage: undefined,
+        primaryZID: 'primary-zid-2',
       });
       expect(channels[1].messages[0].sender).toStrictEqual({
         userId: 'user-3',
@@ -472,6 +485,7 @@ describe('channels list saga', () => {
         firstName: 'first-3',
         lastName: 'last-3',
         profileImage: undefined,
+        primaryZID: '',
       });
     });
   });
@@ -567,5 +581,33 @@ describe('channels list saga', () => {
         .next()
         .isDone();
     });
+  });
+});
+
+describe(waitForChannelListLoad, () => {
+  it('returns true if channel list already loaded', () => {
+    testSaga(waitForChannelListLoad).next().next(AsyncListStatus.Stopped).returns(true);
+  });
+
+  it('waits for load if channel list not yet loaded', () => {
+    testSaga(waitForChannelListLoad)
+      .next()
+      .next(AsyncListStatus.Fetching)
+      .next('fake/conversation/bus')
+      .next('fake/auth/bus')
+      // Conversation bus fires event
+      .next({ conversationsLoaded: {} })
+      .returns(true);
+  });
+
+  it('returns false if the channel load was aborted', () => {
+    testSaga(waitForChannelListLoad)
+      .next()
+      .next(AsyncListStatus.Fetching)
+      .next('fake/conversation/bus')
+      .next('fake/auth/bus')
+      // Auth bus fires user logout event
+      .next({ abort: {} })
+      .returns(false);
   });
 });

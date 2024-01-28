@@ -3,6 +3,15 @@ import { Properties, UserHeader } from '.';
 import { SettingsMenu } from '../../../settings-menu';
 import { IconButton } from '@zero-tech/zui/components';
 
+import { bem } from '../../../../lib/bem';
+
+const c = bem('.user-header');
+
+const featureFlags = { allowVerifyId: false };
+jest.mock('../../../../lib/feature-flags', () => ({
+  featureFlags: featureFlags,
+}));
+
 describe(UserHeader, () => {
   const subject = (props: Partial<Properties> = {}) => {
     const allProps: Properties = {
@@ -22,25 +31,27 @@ describe(UserHeader, () => {
 
   it('renders SettingsMenu when includeUserSettings is true', function () {
     const wrapper = subject({ includeUserSettings: true });
-
     expect(wrapper).toHaveElement(SettingsMenu);
   });
 
   it('does not render SettingsMenu when includeUserSettings is false', function () {
     const wrapper = subject({ includeUserSettings: false });
-
     expect(wrapper).not.toHaveElement(SettingsMenu);
   });
 
-  it('renders users name ', function () {
-    const wrapper = subject({ userName: 'Joe Bloggs' });
+  it('renders userHandle when user handle is not empty', function () {
+    const wrapper = subject({ userHandle: '0://zid.example' });
+    expect(wrapper).toHaveElement(c('handle'));
+  });
 
-    expect(wrapper.find('.user-header__user-name').text()).toEqual('Joe Bloggs');
+  it('does not render userHandle when user handle is empty', function () {
+    const wrapper = subject({ userHandle: '' });
+    expect(wrapper).not.toHaveElement(c('handle'));
   });
 
   it('renders IconButton', function () {
     const wrapper = subject();
-    expect(wrapper.find(IconButton).exists()).toBe(true);
+    expect(wrapper).toHaveElement(IconButton);
   });
 
   it('calls startConversation when IconButton is clicked', function () {
@@ -49,5 +60,19 @@ describe(UserHeader, () => {
 
     wrapper.find(IconButton).simulate('click');
     expect(startConversationMock).toHaveBeenCalled();
+  });
+
+  it('renders navigation link when user handle is a wallet address', function () {
+    featureFlags.allowVerifyId = true;
+
+    const wrapper = subject({ userHandle: '0x1234567890abcdef' });
+    expect(wrapper).toHaveElement(c('link'));
+  });
+
+  it('does not render navigation link when user handle is not a wallet address', function () {
+    featureFlags.allowVerifyId = true;
+
+    const wrapper = subject({ userHandle: 'user123' });
+    expect(wrapper).not.toHaveElement(c('link'));
   });
 });

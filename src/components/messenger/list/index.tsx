@@ -17,6 +17,7 @@ import {
 } from '../../../store/create-conversation';
 import { logout } from '../../../store/authentication';
 import { CreateMessengerConversation } from '../../../store/channels-list/types';
+import { closeConversationErrorDialog } from '../../../store/chat';
 
 import CreateConversationPanel from './create-conversation-panel';
 import { ConversationListPanel } from './conversation-list-panel';
@@ -27,10 +28,13 @@ import { MembersSelectedPayload } from '../../../store/create-conversation/types
 import { getMessagePreview, previewDisplayDate } from '../../../lib/chat/chat-message';
 import { Modal, ToastNotification } from '@zero-tech/zui/components';
 import { InviteDialogContainer } from '../../invite-dialog/container';
+import { ErrorDialog } from '../../error-dialog';
+import { ErrorDialogContent } from '../../../store/chat/types';
 import { receiveSearchResults } from '../../../store/users';
 import { Stage as GroupManagementSagaStage } from '../../../store/group-management';
 import { GroupManagementContainer } from './group-management/container';
 import { UserHeader } from './user-header';
+import { getUserHandle } from './utils/utils';
 
 import { bemClassName } from '../../../lib/bem';
 import './styles.scss';
@@ -53,6 +57,7 @@ export interface Properties extends PublicProperties {
   myUserId: string;
   activeConversationId?: string;
   groupManangemenetStage: GroupManagementSagaStage;
+  joinRoomErrorContent: ErrorDialogContent;
 
   startCreateConversation: () => void;
   startGroup: () => void;
@@ -62,6 +67,7 @@ export interface Properties extends PublicProperties {
   onConversationClick: (payload: { conversationId: string }) => void;
   logout: () => void;
   receiveSearchResults: (data) => void;
+  closeConversationErrorDialog: () => void;
 }
 
 interface State {
@@ -74,12 +80,12 @@ export class Container extends React.Component<Properties, State> {
       createConversation,
       registration,
       authentication: { user },
-      chat: { activeConversationId },
+      chat: { activeConversationId, joinRoomErrorContent },
       groupManagement,
     } = state;
-    const hasWallet = user?.data?.wallets?.length > 0;
 
     const conversations = denormalizeConversations(state).map(addLastMessageMeta(state)).sort(byLastMessageOrCreation);
+    const userHandle = getUserHandle(user?.data?.primaryZID, user?.data?.wallets);
 
     return {
       conversations,
@@ -90,11 +96,12 @@ export class Container extends React.Component<Properties, State> {
       isFirstTimeLogin: registration.isFirstTimeLogin,
       isInviteNotificationOpen: registration.isInviteToastOpen,
       userName: user?.data?.profileSummary?.firstName || '',
-      userHandle: (hasWallet ? user?.data?.wallets[0]?.publicAddress : user?.data?.profileSummary?.primaryEmail) || '',
+      userHandle,
       userAvatarUrl: user?.data?.profileSummary?.profileImage || '',
       userIsOnline: !!user?.data?.isOnline,
       myUserId: user?.data?.id,
       groupManangemenetStage: groupManagement.stage,
+      joinRoomErrorContent,
     };
   }
 
@@ -108,6 +115,7 @@ export class Container extends React.Component<Properties, State> {
       membersSelected,
       logout,
       receiveSearchResults,
+      closeConversationErrorDialog,
     };
   }
 
@@ -147,14 +155,36 @@ export class Container extends React.Component<Properties, State> {
     this.setState({ isInviteDialogOpen: false });
   };
 
+  closeErrorDialog = () => {
+    this.props.closeConversationErrorDialog();
+  };
+
   get userStatus(): 'active' | 'offline' {
     return this.props.userIsOnline ? 'active' : 'offline';
+  }
+
+  get isErrorDialogOpen(): boolean {
+    return !!this.props.joinRoomErrorContent;
   }
 
   renderInviteDialog = (): JSX.Element => {
     return (
       <Modal open={this.state.isInviteDialogOpen} onOpenChange={this.closeInviteDialog}>
         <InviteDialogContainer onClose={this.closeInviteDialog} />
+      </Modal>
+    );
+  };
+
+  renderErrorDialog = (): JSX.Element => {
+    return (
+      <Modal open={this.isErrorDialogOpen} onOpenChange={this.closeErrorDialog}>
+        <ErrorDialog
+          header={this.props.joinRoomErrorContent.header}
+          body={this.props.joinRoomErrorContent.body}
+          linkText={this.props.joinRoomErrorContent?.linkText}
+          linkPath={this.props.joinRoomErrorContent?.linkPath}
+          onClose={this.closeErrorDialog}
+        />
       </Modal>
     );
   };
@@ -246,6 +276,7 @@ export class Container extends React.Component<Properties, State> {
         <div {...cn('')}>
           {this.renderPanel()}
           {this.state.isInviteDialogOpen && this.renderInviteDialog()}
+          {this.props.joinRoomErrorContent && this.renderErrorDialog()}
           {this.renderToastNotification()}
         </div>
       </>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { IconUsers1 } from '@zero-tech/zui/icons';
+import { IconCurrencyEthereum, IconUsers1 } from '@zero-tech/zui/icons';
 import classNames from 'classnames';
 import { RootState } from '../../../store/reducer';
 import { connectContainer } from '../../../store/redux-container';
@@ -108,6 +108,8 @@ export class Container extends React.Component<Properties> {
   renderSubTitle() {
     if (!this.props.directMessage?.otherMembers) {
       return '';
+    } else if (this.isOneOnOne() && this.props.directMessage.otherMembers[0]) {
+      return this.props.directMessage.otherMembers[0].primaryZID;
     } else {
       return this.anyOthersOnline() ? 'Online' : 'Offline';
     }
@@ -205,6 +207,14 @@ export class Container extends React.Component<Properties> {
     }
   };
 
+  renderIcon = () => {
+    return this.isOneOnOne() ? (
+      <IconCurrencyEthereum size={16} className={this.isOneOnOne && 'direct-message-chat__header-avatar--isOneOnOne'} />
+    ) : (
+      <IconUsers1 size={16} />
+    );
+  };
+
   render() {
     if (!this.props.activeConversationId || !this.props.directMessage) {
       return null;
@@ -226,7 +236,7 @@ export class Container extends React.Component<Properties> {
                     `direct-message-chat__header-avatar--${this.avatarStatus()}`
                   )}
                 >
-                  {!this.isOneOnOne() && <IconUsers1 size={16} />}
+                  {!this.avatarUrl() && this.renderIcon()}
                 </div>
               </span>
               <span className='direct-message-chat__description'>

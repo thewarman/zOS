@@ -11,7 +11,7 @@ export interface Properties {
   isAuthenticated: boolean;
 
   match: { params: { conversationId: string } };
-  setActiveConversationId: (id: string) => void;
+  setActiveConversationId: ({ id }: { id: string }) => void;
 }
 
 export class Container extends React.Component<Properties> {
@@ -28,12 +28,12 @@ export class Container extends React.Component<Properties> {
   }
 
   componentDidMount(): void {
-    this.props.setActiveConversationId(this.conversationId);
+    this.props.setActiveConversationId({ id: this.conversationId });
   }
 
   componentDidUpdate(prevProps: Properties): void {
     if (this.idChanged(prevProps)) {
-      this.props.setActiveConversationId(this.conversationId);
+      this.props.setActiveConversationId({ id: this.conversationId });
     }
   }
 
@@ -45,7 +45,7 @@ export class Container extends React.Component<Properties> {
   }
 
   get conversationId() {
-    return this.idFrom(this.props);
+    return decodeURIComponent(this.idFrom(this.props));
   }
 
   idChanged(prevProps: Properties) {

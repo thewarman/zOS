@@ -1,21 +1,18 @@
-import { isUserAdmin, sortMembers } from './utils';
+import { getUserHandle, isUserAdmin, sortMembers } from './utils';
 import { User } from '../../../../store/channels';
 
 describe('sortMembers', () => {
-  it('sorts members correctly with current user first, admins next, then online status and alphabetically', () => {
+  it('sorts members correctly with admins first, then online status and alphabetically', () => {
     const members = [
       { userId: 'otherMember1', matrixId: 'matrix-id-1', firstName: 'Adam', isOnline: false },
-      { userId: 'currentUser', matrixId: 'matrix-id-current', firstName: 'Zara', isOnline: true },
       { userId: 'otherMember2', matrixId: 'matrix-id-2', firstName: 'Charlie', isOnline: true },
       { userId: 'otherMember3', matrixId: 'matrix-id-3', firstName: 'Brenda', isOnline: true },
     ] as any;
     const adminIds = ['matrix-id-2', 'matrix-id-3'];
-    const currentUserId = 'currentUser';
 
-    const sortedMembers = sortMembers(members, adminIds, currentUserId);
+    const sortedMembers = sortMembers(members, adminIds);
 
     const expectedOrder = [
-      { userId: 'currentUser', matrixId: 'matrix-id-current', firstName: 'Zara', isOnline: true },
       { userId: 'otherMember3', matrixId: 'matrix-id-3', firstName: 'Brenda', isOnline: true },
       { userId: 'otherMember2', matrixId: 'matrix-id-2', firstName: 'Charlie', isOnline: true },
       { userId: 'otherMember1', matrixId: 'matrix-id-1', firstName: 'Adam', isOnline: false },
@@ -45,5 +42,22 @@ describe('isUserAdmin', () => {
     const adminIds: string[] = [];
 
     expect(isUserAdmin(user, adminIds)).toBe(false);
+  });
+});
+
+describe('getUserHandle', () => {
+  it('returns primaryZID when it is present', () => {
+    const user = { primaryZID: 'zid123', wallets: [{ id: 'wallet-id-1', publicAddress: 'address456' }] };
+    expect(getUserHandle(user.primaryZID, user.wallets)).toEqual('zid123');
+  });
+
+  it('returns truncated publicAddress from the first wallet when primaryZID is absent', () => {
+    const user = { primaryZID: null, wallets: [{ id: 'wallet-id-1', publicAddress: '0x123456789' }] };
+    expect(getUserHandle(user.primaryZID, user.wallets)).toEqual('0x1234...6789');
+  });
+
+  it('returns empty string when both primaryZID and wallets are absent', () => {
+    const user = { primaryZID: null, wallets: [] };
+    expect(getUserHandle(user.primaryZID, user.wallets)).toEqual('');
   });
 });

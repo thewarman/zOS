@@ -3,7 +3,7 @@ export interface AuthorizationResponse {
   nonceToken?: string;
 }
 
-interface Wallet {
+export interface Wallet {
   id: string;
   publicAddress: string;
 }
@@ -38,6 +38,7 @@ export interface User {
   wallets: Wallet[];
   matrixId?: string;
   matrixAccessToken?: string;
+  primaryZID?: string;
 }
 
 export interface AuthenticationState {

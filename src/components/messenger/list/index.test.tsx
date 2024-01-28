@@ -15,6 +15,7 @@ import { RegistrationState } from '../../../store/registration';
 import { previewDisplayDate } from '../../../lib/chat/chat-message';
 import { GroupManagementContainer } from './group-management/container';
 import { UserHeader } from './user-header';
+import { ErrorDialog } from '../../error-dialog';
 
 const mockSearchMyNetworksByName = jest.fn();
 jest.mock('../../../platform-apps/channels/util/api', () => {
@@ -36,8 +37,10 @@ describe('messenger-list', () => {
       userIsOnline: true,
       isInviteNotificationOpen: false,
       myUserId: '',
+      joinRoomErrorContent: null,
       onConversationClick: jest.fn(),
       createConversation: jest.fn(),
+      closeConversationErrorDialog: () => null,
       startCreateConversation: () => null,
       membersSelected: () => null,
       startGroup: () => null,
@@ -211,12 +214,32 @@ describe('messenger-list', () => {
     expect(wrapper).not.toHaveElement(GroupManagementContainer);
   });
 
+  it('renders Error Dialog Container if joinRoomErrorContent is set and not null', function () {
+    const wrapper = subject({
+      joinRoomErrorContent: { header: 'header', body: 'body' },
+    });
+
+    expect(wrapper).toHaveElement(ErrorDialog);
+  });
+
+  it('calls closeConversationErrorDialog when error dialog is closed', function () {
+    const closeConversationErrorDialog = jest.fn();
+    const wrapper = subject({
+      joinRoomErrorContent: { header: 'header', body: 'body' },
+      closeConversationErrorDialog,
+    });
+
+    wrapper.find(ErrorDialog).prop('onClose')();
+
+    expect(closeConversationErrorDialog).toHaveBeenCalledOnce();
+  });
+
   describe('mapState', () => {
     const subject = (
       channels,
       createConversationState = {},
       currentUser = [{ userId: '', firstName: '', isAMemberOfWorlds: true }],
-      chat = { activeConversationId: '' }
+      chat = { activeConversationId: '', joinRoomErrorContent: null }
     ) => {
       return DirectMessageChat.mapState(getState(channels, createConversationState, currentUser, chat));
     };
@@ -349,9 +372,21 @@ describe('messenger-list', () => {
     });
 
     test('activeConversationId', () => {
-      const state = subject([], {}, undefined, { activeConversationId: 'active-channel-id' });
+      const state = subject([], {}, undefined, {
+        activeConversationId: 'active-channel-id',
+        joinRoomErrorContent: null,
+      });
 
       expect(state.activeConversationId).toEqual('active-channel-id');
+    });
+
+    test('joinRoomErrorContent', () => {
+      const state = subject([], {}, undefined, {
+        activeConversationId: 'active-channel-id',
+        joinRoomErrorContent: { header: 'header', body: 'body' },
+      });
+
+      expect(state.joinRoomErrorContent).toEqual({ header: 'header', body: 'body' });
     });
 
     test('stage', () => {

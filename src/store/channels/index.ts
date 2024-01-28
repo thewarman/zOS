@@ -5,6 +5,7 @@ import { schema as userSchema } from '../users';
 import { createAction } from '@reduxjs/toolkit';
 import { Payload, UnreadCountUpdatedPayload } from './types';
 import { ParentMessage } from '../../lib/chat/types';
+import { Wallet } from '../authentication/types';
 
 export interface User {
   userId: string;
@@ -15,6 +16,8 @@ export interface User {
   isOnline: Boolean;
   profileImage: string;
   lastSeenAt: string;
+  primaryZID: string;
+  wallets?: Wallet[];
 }
 
 export enum GroupChannelType {

@@ -1,5 +1,6 @@
 import { monthsSince, fromNow } from '../../../../lib/date';
 import { User } from '../../../../store/channels';
+import { Wallet } from '../../../../store/authentication/types';
 
 export function lastSeenText(user): string {
   if (user.isOnline) {
@@ -24,14 +25,10 @@ export function isUserAdmin(user: User, adminIds: string[]) {
   return adminIds.includes(user.matrixId);
 }
 
-export function sortMembers(members: User[], adminIds?: string[], currentUserId?: string) {
+export function sortMembers(members: User[], adminIds: string[]) {
   return members.sort((a, b) => {
-    const aIsAdmin = adminIds ? isUserAdmin(a, adminIds) : false;
-    const bIsAdmin = adminIds ? isUserAdmin(b, adminIds) : false;
-
-    // Sort current user to the top
-    if (a.userId === currentUserId) return -1;
-    if (b.userId === currentUserId) return 1;
+    const aIsAdmin = isUserAdmin(a, adminIds);
+    const bIsAdmin = isUserAdmin(b, adminIds);
 
     // Sort admins next
     if (aIsAdmin && !bIsAdmin) return -1;
@@ -44,4 +41,18 @@ export function sortMembers(members: User[], adminIds?: string[], currentUserId?
     // Finally sort alphabetically by firstName
     return a.firstName!.localeCompare(b.firstName);
   });
+}
+
+export function getUserHandle(primaryZID: string, wallets: Wallet[]) {
+  if (primaryZID) {
+    return primaryZID;
+  }
+
+  const publicAddress = wallets?.[0]?.publicAddress;
+
+  if (publicAddress) {
+    return `${publicAddress.substring(0, 6)}...${publicAddress.substring(publicAddress.length - 4)}`;
+  }
+
+  return '';
 }
