@@ -45,6 +45,14 @@ const createWindow = (): void => {
     height: 1024,
     width: 1024,
     show: false,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
+    titleBarOverlay: process.platform === 'darwin',
+    trafficLightPosition: {
+      x: 8,
+      y: 4,
+    },
+    acceptFirstMouse: true,
+    backgroundColor: '#ffffff',
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
     },

@@ -3,7 +3,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electron', {
-  foo: 'bar',
+  enabled: true,
   getPreloadPath: () => ipcRenderer.sendSync('get-preload-path'),
 });
 
