@@ -1,5 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 
+import { setupUpdates } from './update';
+
 // import url from 'url'
 // import path from 'path';
 
@@ -92,6 +94,7 @@ const createWindow = (): void => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.on('ready', () => {
+  setupUpdates();
   createWindow();
 });
 
