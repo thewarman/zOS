@@ -9,7 +9,7 @@ jobs:
     environment: 'development'
     strategy:
       matrix:
-        os: [macos-latest]
+        os: [macos-latest-xlarge]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
