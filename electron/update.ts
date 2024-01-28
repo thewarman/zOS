@@ -1,15 +1,17 @@
 /**
  * Sets up the update service
  */
-export function setupUpdates() {
-  // We delay this work by 30s to ensure that the
-  // app doesn't have to worry about updating during launch
-  setTimeout(() => {
-    const updateApp = require('update-electron-app');
 
-    updateApp({
-      repo: 'thewarman/zOS',
+export function setupUpdates() {
+  setTimeout(() => {
+    const { updateElectronApp, UpdateSourceType } = require('update-electron-app');
+    updateElectronApp({
+      updateSource: {
+        type: UpdateSourceType.ElectronPublicUpdateService,
+        host: 'https://update.electronjs.org',
+        repo: 'thewarman/zOS',
+      },
       updateInterval: '1 hour',
     });
-  }, 30000);
+  }, 10000);
 }
