@@ -1,0 +1,31 @@
+name: Electron Build
+on:
+  push:
+    branches:
+      - 'electron/**'
+jobs:
+  build:
+    runs-on: ${{matrix.os}}
+    environment: 'development'
+    strategy:
+      matrix:
+        os: [macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: echo '//npm.pkg.github.com/:_authToken=${{secrets.GITHUB_TOKEN}}' >> .npmrc
+      - run: npm install
+      - name: Add MacOS certs
+        if: matrix.os == 'macos-latest'
+        run: chmod +x ./scripts/add-macos-cert.sh && ./scripts/add-macos-cert.sh
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+      - name: Publish app
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        run: npm run electron:publish
