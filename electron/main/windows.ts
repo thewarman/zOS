@@ -1,4 +1,3 @@
-import * as path from 'path';
 import { BrowserWindow, shell } from 'electron';
 
 export let browserWindows: Array<BrowserWindow | null> = [];
@@ -8,8 +7,8 @@ let splashScreen: BrowserWindow | null;
 // plugin that tells the Electron app where to look for the Webpack-bundled app code (depending on
 // whether you're running in development or production).
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
-declare const SPLASH_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+declare const SPLASH_WEBPACK_ENTRY: string;
 
 let mainIsReadyResolver: () => void;
 const mainIsReadyPromise = new Promise<void>((resolve) => (mainIsReadyResolver = resolve));
@@ -120,5 +119,5 @@ export function createSplashScreen(): Electron.BrowserWindow {
 
 export async function getOrCreateMainWindow(): Promise<Electron.BrowserWindow> {
   await mainIsReadyPromise;
-  return BrowserWindow.getFocusedWindow() || browserWindows[0] || createMainWindow();
+  return browserWindows[0] || createMainWindow();
 }
