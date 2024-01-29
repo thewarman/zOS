@@ -1,6 +1,6 @@
 {
   "name": "zOS",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "private": true,
   "main": ".webpack/main",
   "engines": {
