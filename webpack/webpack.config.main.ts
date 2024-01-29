@@ -9,7 +9,7 @@ export const mainConfig: Configuration = {
    * This is the main entry point for your application, it's the first file
    * that runs in the main process.
    */
-  entry: './electron/main.ts',
+  entry: './electron/main/main.ts',
   module: {
     rules: [
       // Add support for native node modules

@@ -25,17 +25,17 @@ const config: ForgeConfig = {
         entryPoints: [
           {
             name: 'main_window',
-            html: './electron/renderer.html',
+            html: './electron/static/app.html',
             js: './src/index.tsx',
             preload: {
-              js: './electron/preload.ts',
+              js: './electron/preload/preload.ts',
               config: preloadConfig,
             },
           },
           {
             name: 'splash',
-            html: './electron/splash.html',
-            js: './electron/splash.tsx',
+            html: './electron/static/splash.html',
+            js: './electron/renderer/splash.tsx',
           },
         ],
       },
@@ -45,7 +45,7 @@ const config: ForgeConfig = {
     name: 'zOS',
     executableName: 'zOS',
     asar: true,
-    icon: path.resolve(__dirname, 'electron', 'assets', 'icons', 'zero-white-icon'),
+    icon: path.resolve(__dirname, 'electron', 'static', 'icons', 'zero-white-icon'),
     appBundleId: 'com.zero.zOS',
     usageDescription: {
       Camera: 'Access is needed by certain built-in fiddles in addition to any custom fiddles that use the Camera',
