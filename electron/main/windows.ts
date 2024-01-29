@@ -49,7 +49,6 @@ export function createMainWindow(): Electron.BrowserWindow {
   mainWindow.webContents.once('dom-ready', () => {
     if (splashScreen) {
       splashScreen.close();
-      splashScreen = null;
     }
     mainWindow?.show();
   });

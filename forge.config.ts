@@ -44,7 +44,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     name: 'zOS',
     executableName: 'zOS',
-    asar: true,
+    asar: false,
     icon: path.resolve(__dirname, 'electron', 'static', 'icons', 'zero-white-icon'),
     appBundleId: 'com.zero.zOS',
     usageDescription: {
