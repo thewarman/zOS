@@ -1,6 +1,4 @@
-/**
- * Sets up the update service
- */
+import log from 'electron-log/main';
 
 export function setupUpdates() {
   setTimeout(() => {
@@ -12,6 +10,7 @@ export function setupUpdates() {
         repo: 'thewarman/zOS',
       },
       updateInterval: '1 hour',
+      logger: log,
     });
   }, 10000);
 }

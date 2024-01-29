@@ -1,6 +1,6 @@
 {
   "name": "zOS",
-  "version": "1.9.3",
+  "version": "1.9.4",
   "private": true,
   "main": ".webpack/main",
   "engines": {
@@ -24,6 +24,7 @@
     "@zero-tech/zui": "^1.7.0",
     "audio-react-recorder-fixed": "^1.0.3",
     "classnames": "^2.3.1",
+    "electron-log": "^5.1.0",
     "electron-squirrel-startup": "^1.0.0",
     "emoji-mart": "^3.0.1",
     "es6-promise-debounce": "^1.0.1",
