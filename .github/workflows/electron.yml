@@ -5,7 +5,6 @@ on:
       - 'electron/**'
 jobs:
   build:
-    runs-on: ${{matrix.os}}
     environment: 'development'
     env:
       REACT_APP_INFURA_URL: ${{secrets.REACT_APP_INFURA_URL}}
@@ -25,8 +24,8 @@ jobs:
       REACT_APP_ZNS_EXPLORER_URL: ${{vars.REACT_APP_ZNS_EXPLORER_URL}}
     strategy:
       matrix:
-        os: [macos-latest-xlarge]
-        # os: [macos-latest, macos-latest-xlarge]
+        os: [{ name: 'macos', image: 'macos-14-xlarge' }, { name: 'windows', image: 'windows-latest' }]
+    runs-on: ${{matrix.os.image}}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,7 +45,7 @@ jobs:
       - run: echo '//npm.pkg.github.com/:_authToken=${{secrets.GITHUB_TOKEN}}' >> .npmrc
       - run: npm install
       - name: Add MacOS certs
-        if: matrix.os == 'macos-latest' || matrix.os == 'macos-latest-xlarge'
+        if: matrix.os.name == 'macos'
         run: chmod +x ./scripts/add-macos-cert.sh && ./scripts/add-macos-cert.sh
         env:
           MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}

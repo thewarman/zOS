@@ -27,7 +27,6 @@ function setupIpc() {
 
 function onBeforeQuit() {
   log.info('onBeforeQuit');
-  app.quit();
 }
 
 // Quit when all windows are closed, except on macOS. There, it's common

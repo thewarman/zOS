@@ -22,12 +22,14 @@ export function getMainWindowOptions(): Electron.BrowserWindowConstructorOptions
     height: 1024,
     width: 1024,
     show: false,
+    /* title bar config for custom macos title bar
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
     titleBarOverlay: process.platform === 'darwin',
     trafficLightPosition: {
       x: 8,
       y: 4,
     },
+    */
     acceptFirstMouse: true,
     backgroundColor: '#ffffff',
     webPreferences: {
