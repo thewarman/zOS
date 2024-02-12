@@ -83,6 +83,7 @@ const config: ForgeConfig = {
       config: (arch: string) => ({
         name: 'zOS',
         authors: 'zOS',
+        description: 'zOS',
         noMsi: true,
       }),
     },
