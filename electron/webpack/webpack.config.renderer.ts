@@ -90,7 +90,6 @@ export const rendererConfig: webpack.Configuration = {
   plugins: [
     new DotEnv({
       path: path.join(PROJECT_ROOT_PATH, '.env'),
-      systemvars: true,
     }),
     new CopyWebpackPlugin({
       patterns: [
