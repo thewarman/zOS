@@ -17,11 +17,11 @@ jobs:
       REACT_APP_SENTRY_DSN: ${{secrets.REACT_APP_SENTRY_DSN}}
       REACT_APP_WEB3_AUTHENTICATE_MESSAGE: ${{secrets.REACT_APP_WEB3_AUTHENTICATE_MESSAGE}}
       REACT_APP_GIPHY_SDK_KEY: ${{secrets.REACT_APP_GIPHY_SDK_KEY}}
-      REACT_APP_MESSENGER_INVITE_PATH: ${{vars.REACT_APP_MESSENGER_INVITE_PATH}}
-      REACT_APP_ASSETS_PATH: ${{vars.REACT_APP_ASSETS_PATH}}
-      REACT_APP_ANDROID_STORE_PATH: ${{vars.REACT_APP_ANDROID_STORE_PATH}}
-      REACT_APP_MATRIX_HOME_SERVER_URL: ${{vars.REACT_APP_MATRIX_HOME_SERVER_URL}}
-      REACT_APP_ZNS_EXPLORER_URL: ${{vars.REACT_APP_ZNS_EXPLORER_URL}}
+      REACT_APP_MESSENGER_INVITE_PATH: ${{secrets.REACT_APP_MESSENGER_INVITE_PATH}}
+      REACT_APP_ASSETS_PATH: ${{secrets.REACT_APP_ASSETS_PATH}}
+      REACT_APP_ANDROID_STORE_PATH: ${{secrets.REACT_APP_ANDROID_STORE_PATH}}
+      REACT_APP_MATRIX_HOME_SERVER_URL: ${{secrets.REACT_APP_MATRIX_HOME_SERVER_URL}}
+      REACT_APP_ZNS_EXPLORER_URL: ${{secrets.REACT_APP_ZNS_EXPLORER_URL}}
     strategy:
       matrix:
         os: [{ name: 'macos', image: 'macos-14-xlarge' }, { name: 'windows', image: 'windows-latest' }]
@@ -67,11 +67,11 @@ jobs:
           echo "REACT_APP_SENTRY_DSN=${{secrets.REACT_APP_SENTRY_DSN}}" >> .env
           echo "REACT_APP_WEB3_AUTHENTICATE_MESSAGE=${{secrets.REACT_APP_WEB3_AUTHENTICATE_MESSAGE}}" >> .env
           echo "REACT_APP_GIPHY_SDK_KEY=${{secrets.REACT_APP_GIPHY_SDK_KEY}}" >> .env
-          echo "REACT_APP_MESSENGER_INVITE_PATH=${{vars.REACT_APP_MESSENGER_INVITE_PATH}}" >> .env
-          echo "REACT_APP_ASSETS_PATH=${{vars.REACT_APP_ASSETS_PATH}}" >> .env
-          echo "REACT_APP_ANDROID_STORE_PATH=${{vars.REACT_APP_ANDROID_STORE_PATH}}" >> .env
-          echo "REACT_APP_MATRIX_HOME_SERVER_URL=${{vars.REACT_APP_MATRIX_HOME_SERVER_URL}}" >> .env
-          echo "REACT_APP_ZNS_EXPLORER_URL=${{vars.REACT_APP_ZNS_EXPLORER_URL}}" >> .env
+          echo "REACT_APP_MESSENGER_INVITE_PATH=${{secrets.REACT_APP_MESSENGER_INVITE_PATH}}" >> .env
+          echo "REACT_APP_ASSETS_PATH=${{secrets.REACT_APP_ASSETS_PATH}}" >> .env
+          echo "REACT_APP_ANDROID_STORE_PATH=${{secrets.REACT_APP_ANDROID_STORE_PATH}}" >> .env
+          echo "REACT_APP_MATRIX_HOME_SERVER_URL=${{secrets.REACT_APP_MATRIX_HOME_SERVER_URL}}" >> .env
+          echo "REACT_APP_ZNS_EXPLORER_URL=${{secrets.REACT_APP_ZNS_EXPLORER_URL}}" >> .env
         shell: bash
       - name: Publish app
         env:
