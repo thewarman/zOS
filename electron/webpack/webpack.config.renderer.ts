@@ -14,8 +14,8 @@ export const rendererConfig: webpack.Configuration = {
   entry: path.join(PROJECT_ROOT_PATH, 'src', 'index.tsx'),
   resolve: {
     alias: {
-      'remark-emoji': path.resolve('./node_modules/remark-emoji'),
-      './lib/platform': path.resolve('../src/lib/platform/index.desktop.ts'),
+      'remark-emoji': path.resolve(path.join(PROJECT_ROOT_PATH, './node_modules/remark-emoji')),
+      './lib/platform': path.resolve(path.join(PROJECT_ROOT_PATH, './src/lib/platform/index.desktop.ts')),
     },
     extensions: [
       '.ts',
