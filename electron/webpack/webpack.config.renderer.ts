@@ -90,6 +90,7 @@ export const rendererConfig: webpack.Configuration = {
   plugins: [
     new DotEnv({
       path: path.join(PROJECT_ROOT_PATH, '.env'),
+      systemvars: true,
     }),
     new CopyWebpackPlugin({
       patterns: [
@@ -121,4 +122,5 @@ export const rendererConfig: webpack.Configuration = {
       directory: path.join(PROJECT_ROOT_PATH, 'public'),
     },
   },
+  devtool: 'source-map',
 };

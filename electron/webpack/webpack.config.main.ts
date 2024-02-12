@@ -1,5 +1,6 @@
 import type { Configuration } from 'webpack';
 import type IForkTsCheckerWebpackPlugin from 'fork-ts-checker-webpack-plugin';
+import TerserPlugin from 'terser-webpack-plugin';
 import path from 'path';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -58,6 +59,14 @@ export const mainConfig: Configuration = {
       '.tsx',
       '.css',
       '.json',
+    ],
+  },
+  devtool: 'source-map',
+  optimization: {
+    nodeEnv: false,
+    minimize: true,
+    minimizer: [
+      new TerserPlugin({}),
     ],
   },
 };
