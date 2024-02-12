@@ -41,9 +41,11 @@ jobs:
         with:
           path: |
             **/node_modules
+            **/electron/node_modules
           key: ${{ runner.os }}-node_modules-${{ hashFiles('**/package-lock.json') }}-${{ steps.node.outputs.version }}
       - run: echo '//npm.pkg.github.com/:_authToken=${{secrets.GITHUB_TOKEN}}' >> .npmrc
       - run: npm install
+      - run: cd electron && npm install
       - name: Add MacOS certs
         if: matrix.os.name == 'macos'
         run: chmod +x ./scripts/add-macos-cert.sh && ./scripts/add-macos-cert.sh
@@ -55,4 +57,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-        run: npm run electron:publish
+        run: cd electron && npm run electron:publish

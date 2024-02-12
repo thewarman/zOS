@@ -1,15 +1,19 @@
 import type { Configuration } from 'webpack';
 import type IForkTsCheckerWebpackPlugin from 'fork-ts-checker-webpack-plugin';
+import path from 'path';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const ForkTsCheckerWebpackPlugin: typeof IForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
+
+const PROJECT_ROOT_PATH = path.resolve(__dirname, '..', '..');
+const ELECTRON_ROOT_PATH = path.resolve(__dirname, '..');
 
 export const mainConfig: Configuration = {
   /**
    * This is the main entry point for your application, it's the first file
    * that runs in the main process.
    */
-  entry: './electron/main/main.ts',
+  entry: path.join(ELECTRON_ROOT_PATH, 'src', 'main', 'main.ts'),
   module: {
     rules: [
       // Add support for native node modules

@@ -32,3 +32,5 @@ yarn-error.log*
 
 /.webpack
 /out
+/electron/node_modules
+/electron/.webpack

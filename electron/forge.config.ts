@@ -11,6 +11,9 @@ import { mainConfig } from './webpack/webpack.config.main';
 import { rendererConfig } from './webpack/webpack.config.renderer';
 import { preloadConfig } from './webpack/webpack.config.preload';
 
+const PROJECT_ROOT_PATH = path.resolve(__dirname, '..');
+const ELECTRON_ROOT_PATH = path.resolve(__dirname);
+
 const config: ForgeConfig = {
   rebuildConfig: {},
   plugins: [
@@ -25,17 +28,17 @@ const config: ForgeConfig = {
         entryPoints: [
           {
             name: 'main_window',
-            html: './electron/static/app.html',
-            js: './src/index.tsx',
+            html: path.join(ELECTRON_ROOT_PATH, 'static', 'app.html'),
+            js: path.join(PROJECT_ROOT_PATH, 'src', 'index.tsx'),
             preload: {
-              js: './electron/preload/preload.ts',
+              js: path.join(ELECTRON_ROOT_PATH, 'src', 'preload', 'preload.ts'),
               config: preloadConfig,
             },
           },
           {
             name: 'splash',
-            html: './electron/static/splash.html',
-            js: './electron/renderer/splash.tsx',
+            html: path.join(ELECTRON_ROOT_PATH, 'static', 'splash.html'),
+            js: path.join(ELECTRON_ROOT_PATH, 'src', 'renderer', 'splash.tsx'),
           },
         ],
       },
@@ -45,7 +48,7 @@ const config: ForgeConfig = {
     name: 'zOS',
     executableName: 'zOS',
     asar: false,
-    icon: path.resolve(__dirname, 'electron', 'static', 'icons', 'zero-white-icon'),
+    icon: path.join(ELECTRON_ROOT_PATH, 'static', 'icons', 'zero-white-icon'),
     appBundleId: 'com.zero.zOS',
     usageDescription: {
       Camera: 'Access is needed by certain built-in fiddles in addition to any custom fiddles that use the Camera',
@@ -74,10 +77,20 @@ const config: ForgeConfig = {
     },
   },
   makers: [
-    new MakerSquirrel({}),
-    new MakerZIP({}, ['darwin']),
-    new MakerRpm({}),
-    new MakerDeb({}),
+    {
+      name: '@electron-forge/maker-squirrel',
+      platforms: ['win32'],
+      config: (arch: string) => ({
+        name: 'zOS',
+        authors: 'zOS',
+        noMsi: true,
+      }),
+    },
+    {
+      name: '@electron-forge/maker-zip',
+      platforms: ['darwin'],
+      config: {},
+    },
   ],
   publishers: [
     {
@@ -88,7 +101,7 @@ const config: ForgeConfig = {
           name: 'zOS',
         },
         draft: true,
-        prerelease: true,
+        prerelease: false,
       },
     },
   ],

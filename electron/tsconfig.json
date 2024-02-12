@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES6",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "strictNullChecks": false,
+    "noEmit": false,
+    "noImplicitAny": false,
+    "jsx": "react-jsx",
+    "downlevelIteration": true
+  },
+  "include": ["src"],
+  // This is needed so that the ts-node CLI will be able to load the webpack config
+  "ts-node": {
+    "compilerOptions": {
+      "module": "CommonJS"
+    },
+    "include": ["./webpack"]
+  }
+}

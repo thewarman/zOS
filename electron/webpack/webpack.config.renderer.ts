@@ -2,21 +2,20 @@ import fs from 'fs';
 import path from 'path';
 import webpack from 'webpack';
 import 'webpack-dev-server';
-import HtmlWebpackPlugin from 'html-webpack-plugin';
+import CopyWebpackPlugin from 'copy-webpack-plugin';
 import DotEnv from 'dotenv-webpack';
 import TerserPlugin from 'terser-webpack-plugin';
 
-export const webConfig: webpack.Configuration = {
+const PROJECT_ROOT_PATH = path.resolve(__dirname, '..', '..');
+const ELECTRON_ROOT_PATH = path.resolve(__dirname, '..');
+
+export const rendererConfig: webpack.Configuration = {
   mode: 'development',
-  entry: './src/index.tsx',
-  output: {
-    clean: true,
-    path: path.resolve(__dirname, 'build'),
-    filename: '[name].[contenthash].bundle.js',
-  },
+  entry: path.join(PROJECT_ROOT_PATH, 'src', 'index.tsx'),
   resolve: {
     alias: {
       'remark-emoji': path.resolve('./node_modules/remark-emoji'),
+      './lib/platform': path.resolve('../src/lib/platform/index.desktop.ts'),
     },
     extensions: [
       '.ts',
@@ -29,12 +28,13 @@ export const webConfig: webpack.Configuration = {
       buffer: require.resolve('buffer'),
       crypto: false,
     },
+    plugins: [],
   },
   module: {
     rules: [
       {
         test: /\.(ts|tsx)$/,
-        include: path.resolve(__dirname, '..', 'src'),
+        include: path.join(PROJECT_ROOT_PATH, 'src'),
         exclude: /node_modules/,
         use: {
           loader: 'ts-loader',
@@ -43,6 +43,22 @@ export const webConfig: webpack.Configuration = {
           },
         },
       },
+      // Test for esbuild and swc loaders
+      //   {
+      //     test: /\.(ts|tsx)$/,
+      //     include: path.resolve(__dirname, 'src'),
+      //     exclude: /node_modules/,
+      //     loader: 'esbuild-loader',
+      //     options: {
+      //       target: 'es2015',
+      //     },
+      //   },
+      //   {
+      //     test: /\.(ts|tsx)$/,
+      //     include: path.resolve(__dirname, 'src'),
+      //     exclude: /node_modules/,
+      //     loader: "swc-loader"
+      //   },
       {
         test: /\.(css|scss)$/,
         use: ['style-loader', 'css-loader', 'sass-loader'],
@@ -72,9 +88,15 @@ export const webConfig: webpack.Configuration = {
     ],
   },
   plugins: [
-    new DotEnv(),
-    new HtmlWebpackPlugin({
-      template: './public/index.html',
+    new DotEnv({
+      path: path.join(PROJECT_ROOT_PATH, '.env'),
+    }),
+    new CopyWebpackPlugin({
+      patterns: [
+        { from: path.join(PROJECT_ROOT_PATH, 'public', 'olm.js'), to: 'olm.js' },
+        { from: path.join(PROJECT_ROOT_PATH, 'public', 'olm.wasm'), to: 'olm.wasm' },
+        { from: path.join(PROJECT_ROOT_PATH, 'public', 'logo512.png'), to: 'logo512.png' },
+      ],
     }),
     new webpack.ProvidePlugin({
       Buffer: ['buffer', 'Buffer'],
@@ -96,13 +118,7 @@ export const webConfig: webpack.Configuration = {
   },
   devServer: {
     static: {
-      directory: path.join(__dirname, '..', 'public'),
+      directory: path.join(PROJECT_ROOT_PATH, 'public'),
     },
-    compress: true,
-    port: 3001,
-    historyApiFallback: true,
-    hot: true,
   },
 };
-
-export default webConfig;
