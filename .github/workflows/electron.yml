@@ -1,0 +1,83 @@
+name: Electron Build
+on:
+  push:
+    branches:
+      - 'electron/**'
+jobs:
+  build:
+    environment: 'development'
+    env:
+      REACT_APP_INFURA_URL: ${{secrets.REACT_APP_INFURA_URL}}
+      REACT_APP_INFURA_ID: ${{secrets.REACT_APP_INFURA_ID}}
+      REACT_APP_CLOUDINARY_PREFIX: ${{secrets.REACT_APP_CLOUDINARY_PREFIX}}
+      REACT_APP_CLOUDINARY_CLOUD_NAME: ${{secrets.REACT_APP_CLOUDINARY_CLOUD_NAME}}
+      REACT_APP_ETH_CHAIN: ${{secrets.REACT_APP_ETH_CHAIN}}
+      REACT_APP_VERSION: ${{secrets.REACT_APP_VERSION}}
+      REACT_APP_ZERO_API_URL: ${{secrets.REACT_APP_ZERO_API_URL}}
+      REACT_APP_SENTRY_DSN: ${{secrets.REACT_APP_SENTRY_DSN}}
+      REACT_APP_WEB3_AUTHENTICATE_MESSAGE: ${{secrets.REACT_APP_WEB3_AUTHENTICATE_MESSAGE}}
+      REACT_APP_GIPHY_SDK_KEY: ${{secrets.REACT_APP_GIPHY_SDK_KEY}}
+      REACT_APP_MESSENGER_INVITE_PATH: ${{secrets.REACT_APP_MESSENGER_INVITE_PATH}}
+      REACT_APP_ASSETS_PATH: ${{secrets.REACT_APP_ASSETS_PATH}}
+      REACT_APP_ANDROID_STORE_PATH: ${{secrets.REACT_APP_ANDROID_STORE_PATH}}
+      REACT_APP_MATRIX_HOME_SERVER_URL: ${{secrets.REACT_APP_MATRIX_HOME_SERVER_URL}}
+      REACT_APP_ZNS_EXPLORER_URL: ${{secrets.REACT_APP_ZNS_EXPLORER_URL}}
+    strategy:
+      matrix:
+        os: [{ name: 'macos', image: 'macos-14-xlarge' }, { name: 'windows', image: 'windows-latest' }]
+    runs-on: ${{matrix.os.image}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Get node version
+        id: node
+        shell: bash
+        run: echo "version=$(node -v)" >> $GITHUB_OUTPUT
+      - name: Get node_modules cache
+        uses: actions/cache@v4
+        id: node_modules
+        with:
+          path: |
+            **/node_modules
+            **/electron/node_modules
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('**/package-lock.json') }}-${{ steps.node.outputs.version }}
+      - run: echo '//npm.pkg.github.com/:_authToken=${{secrets.GITHUB_TOKEN}}' >> .npmrc
+      - name: install deps
+        run: npm install
+      - name: install electron deps
+        run: npm install
+        working-directory: ./electron
+      - name: Add MacOS certs
+        if: matrix.os.name == 'macos'
+        run: chmod +x ./scripts/add-macos-cert.sh && ./scripts/add-macos-cert.sh
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        working-directory: ./electron
+      - name: Setup .env file
+        run: |
+          echo "REACT_APP_INFURA_URL=${{secrets.REACT_APP_INFURA_URL}}" > .env
+          echo "REACT_APP_INFURA_ID=${{secrets.REACT_APP_INFURA_ID}}" >> .env
+          echo "REACT_APP_CLOUDINARY_PREFIX=${{secrets.REACT_APP_CLOUDINARY_PREFIX}}" >> .env
+          echo "REACT_APP_CLOUDINARY_CLOUD_NAME=${{secrets.REACT_APP_CLOUDINARY_CLOUD_NAME}}" >> .env
+          echo "REACT_APP_ETH_CHAIN=${{secrets.REACT_APP_ETH_CHAIN}}" >> .env
+          echo "REACT_APP_VERSION=${{secrets.REACT_APP_VERSION}}" >> .env
+          echo "REACT_APP_ZERO_API_URL=${{secrets.REACT_APP_ZERO_API_URL}}" >> .env
+          echo "REACT_APP_SENTRY_DSN=${{secrets.REACT_APP_SENTRY_DSN}}" >> .env
+          echo "REACT_APP_WEB3_AUTHENTICATE_MESSAGE=${{secrets.REACT_APP_WEB3_AUTHENTICATE_MESSAGE}}" >> .env
+          echo "REACT_APP_GIPHY_SDK_KEY=${{secrets.REACT_APP_GIPHY_SDK_KEY}}" >> .env
+          echo "REACT_APP_MESSENGER_INVITE_PATH=${{secrets.REACT_APP_MESSENGER_INVITE_PATH}}" >> .env
+          echo "REACT_APP_ASSETS_PATH=${{secrets.REACT_APP_ASSETS_PATH}}" >> .env
+          echo "REACT_APP_ANDROID_STORE_PATH=${{secrets.REACT_APP_ANDROID_STORE_PATH}}" >> .env
+          echo "REACT_APP_MATRIX_HOME_SERVER_URL=${{secrets.REACT_APP_MATRIX_HOME_SERVER_URL}}" >> .env
+          echo "REACT_APP_ZNS_EXPLORER_URL=${{secrets.REACT_APP_ZNS_EXPLORER_URL}}" >> .env
+        shell: bash
+      - name: Publish app
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        run: npm run electron:publish
+        working-directory: ./electron
