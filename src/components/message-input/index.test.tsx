@@ -1,6 +1,5 @@
 import React from 'react';
 
-import { MentionsInput } from 'react-mentions';
 import { shallow } from 'enzyme';
 
 import { MessageInput, Properties } from '.';
@@ -10,12 +9,11 @@ import { config } from '../../config';
 import ReplyCard from '../reply-card/reply-card';
 import { ViewModes } from '../../shared-components/theme-engine';
 import { IconSend3 } from '@zero-tech/zui/icons';
+import { Mentions } from './mentions';
 
 describe('MessageInput', () => {
   const subject = (props: Partial<Properties>, child: any = <div />) => {
     const allProps: Properties = {
-      className: '',
-      placeholder: '',
       reply: null,
       onSubmit: () => undefined,
       onRemoveReply: () => undefined,
@@ -34,28 +32,9 @@ describe('MessageInput', () => {
     return shallow(<MessageInput {...allProps}>{child}</MessageInput>);
   };
 
-  it('adds className', () => {
-    const wrapper = subject({ className: 'message-input' });
-
-    expect(wrapper.hasClass('message-input')).toBeTrue();
-  });
-
-  it('adds placeholder', () => {
-    const wrapper = subject({ placeholder: 'Speak' });
-    const dropzone = wrapper.find(Dropzone).shallow();
-
-    expect(dropzone.find(MentionsInput).prop('placeholder')).toEqual('Speak');
-  });
-
-  it('it renders the messageInput', function () {
-    const wrapper = subject({ className: 'chat' });
-
-    expect(wrapper.find('.message-input').exists()).toBe(true);
-  });
-
   it('should call editActions', function () {
     const renderAfterInput = jest.fn();
-    const wrapper = subject({ renderAfterInput, className: 'chat' });
+    const wrapper = subject({ renderAfterInput });
     const _dropzone = wrapper.find(Dropzone).shallow();
 
     expect(renderAfterInput).toHaveBeenCalled();
@@ -63,10 +42,10 @@ describe('MessageInput', () => {
 
   it('does not submit message when message state is empty', () => {
     const onSubmit = jest.fn();
-    const wrapper = subject({ onSubmit, placeholder: 'Speak' });
+    const wrapper = subject({ onSubmit });
     const dropzone = wrapper.find(Dropzone).shallow();
 
-    const input = dropzone.find(MentionsInput);
+    const input = dropzone.find(Mentions);
     input.simulate('keydown', { preventDefault() {}, key: Key.Enter, ctrlKey: true });
 
     expect(onSubmit).not.toHaveBeenCalled();
@@ -74,10 +53,10 @@ describe('MessageInput', () => {
 
   it('submits message when Enter is pressed', () => {
     const onSubmit = jest.fn();
-    const wrapper = subject({ onSubmit, placeholder: 'Speak' });
+    const wrapper = subject({ onSubmit });
     const dropzone = wrapper.find(Dropzone).shallow();
 
-    const input = dropzone.find(MentionsInput);
+    const input = dropzone.find(Mentions);
     input.simulate('change', { target: { value: 'Hello' } });
     input.simulate('keydown', { preventDefault() {}, key: Key.Enter, shiftKey: false });
 
@@ -91,7 +70,7 @@ describe('MessageInput', () => {
     const wrapper = subject({ onSubmit, dropzoneToMedia });
     const dropzone = wrapper.find(Dropzone).shallow();
 
-    const input = dropzone.find(MentionsInput);
+    const input = dropzone.find(Mentions);
     wrapper.find(Dropzone).simulate('drop', [{ name: 'file1' }]);
     input.simulate('keydown', { preventDefault() {}, key: Key.Enter, shiftKey: false });
 
@@ -140,18 +119,6 @@ describe('MessageInput', () => {
     expect(wrapper).not.toHaveElement('.message-input__icon--highlighted');
   });
 
-  it('submit message when click on textarea', () => {
-    const onSubmit = jest.fn();
-    const wrapper = subject({ onSubmit, placeholder: 'Speak' });
-    const dropzone = wrapper.find(Dropzone).shallow();
-
-    const input = dropzone.find(MentionsInput);
-    input.simulate('change', { target: { value: 'Hello' } });
-    input.simulate('keydown', { preventDefault() {}, key: Key.Enter, shiftKey: false });
-
-    expect(onSubmit).toHaveBeenCalledOnce();
-  });
-
   it('opens tooltip if disable message is set and user tries to submit', () => {
     const wrapper = subject({ sendDisabledMessage: 'you cannot send yet' });
     setInput(wrapper, 'Hello');
@@ -179,12 +146,6 @@ describe('MessageInput', () => {
     expect(onMessageInputRendered).toHaveBeenCalledWith({
       current: null,
     });
-  });
-
-  it('renders Dropzone', function () {
-    const wrapper = subject({});
-
-    expect(wrapper.find(Dropzone).exists()).toBe(true);
   });
 
   it('renders ReplyCard', function () {
@@ -234,34 +195,6 @@ describe('MessageInput', () => {
     expect(dropZone.prop('maxSize')).toEqual(maxSize);
   });
 
-  it('searches for matching users via userMentionSearch function', async function () {
-    const getUsersForMentions = async (_searchString) =>
-      Promise.resolve([{ id: '1', display: 'dale', profileImage: 'http://example.com' }]);
-    const wrapper = subject({ getUsersForMentions });
-
-    const searchResults = await userSearch(wrapper, 'da');
-
-    expect(searchResults).toEqual([{ display: 'dale', id: '1', profileImage: 'http://example.com' }]);
-  });
-
-  it('sorts by search string index', async function () {
-    const getUsersForMentions = async (_searchString) =>
-      Promise.resolve([
-        { id: 'd-2', display: '2-dale', profileImage: 'http://example.com/2', primaryZID: '0://d-2:dale' },
-        { id: 'd-3', display: '3--dale', profileImage: 'http://example.com/3', primaryZID: '0://d-3:dale' },
-        { id: 'd-1', display: 'dale', profileImage: 'http://example.com/', primaryZID: '0://d-1:dale' },
-      ]);
-    const wrapper = subject({ getUsersForMentions });
-
-    const searchResults = await userSearch(wrapper, 'da');
-
-    expect(searchResults).toEqual([
-      { display: 'dale', id: 'd-1', profileImage: 'http://example.com/', primaryZID: '0://d-1:dale' },
-      { display: '2-dale', id: 'd-2', profileImage: 'http://example.com/2', primaryZID: '0://d-2:dale' },
-      { display: '3--dale', id: 'd-3', profileImage: 'http://example.com/3', primaryZID: '0://d-3:dale' },
-    ]);
-  });
-
   describe('Emojis', () => {
     it('translates typed colon emojis to unicode emojis', () => {
       const onSubmit = jest.fn();
@@ -269,31 +202,15 @@ describe('MessageInput', () => {
       const dropzone = wrapper.find(Dropzone).shallow();
 
       const message = 'Message with :smile:';
-      dropzone.find(MentionsInput).simulate('change', { target: { value: message } });
+      dropzone.find(Mentions).simulate('change', { target: { value: message } });
       wrapper.find('.message-input__icon--end-action').simulate('click');
 
       expect(onSubmit).toHaveBeenCalledWith('Message with 😄', [], []);
     });
   });
-
-  async function userSearch(wrapper, search) {
-    const userMentionHandler = wrapper
-      .find(Dropzone)
-      .shallow()
-      .find(MentionsInput)
-      .shallow()
-      .find('Mention')
-      .findWhere((n) => n.prop('trigger') === '@');
-    let searchResults = [];
-    const callback = (r) => {
-      searchResults = r;
-    };
-    await userMentionHandler.prop('data')(search, callback);
-    return searchResults;
-  }
 });
 
 function setInput(wrapper, input) {
   const dropzone = wrapper.find(Dropzone).shallow();
-  dropzone.find(MentionsInput).simulate('change', { target: { value: input } });
+  dropzone.find(Mentions).simulate('change', { target: { value: input } });
 }

@@ -1,153 +1,233 @@
 import * as React from 'react';
 
-import { Alert, Button, IconButton, Input } from '@zero-tech/zui/components';
-
-import { clipboard } from '../../lib/clipboard';
-
 import { bemClassName } from '../../lib/bem';
+import { assertAllValuesConsumed } from '../../lib/enum';
+import { BackupStage } from '../../store/matrix';
+
+import { BackupFAQ } from './backup-faq';
+import { GeneratePrompt } from './generate-prompt';
+import { GenerateBackup } from './generate-backup';
+import { RestorePrompt } from './restore-prompt';
+import { RestoreBackup } from './restore-backup';
+import { RecoveredBackup } from './recovered-backup';
+import { Success } from './success';
+import { VerifyKeyPhrase } from './verify-key-phrase';
+import { Color, Modal } from '../modal';
+import { LoadingIndicator } from '@zero-tech/zui/components';
+
 import './styles.scss';
-import { IconXClose } from '@zero-tech/zui/icons';
 
 const cn = bemClassName('secure-backup');
 
-export interface Clipboard {
-  write: (text: string) => Promise<void>;
-}
-
 export interface Properties {
+  isLoading: boolean;
   recoveryKey: string;
   backupExists: boolean;
-  isBackupRecovered: boolean;
-  isLegacy: boolean;
+  backupRestored: boolean;
   successMessage: string;
   errorMessage: string;
-
-  clipboard?: Clipboard;
+  videoAssetsPath: string;
+  backupStage: BackupStage;
 
   onClose: () => void;
   onGenerate: () => void;
-  onSave: () => void;
+  onSave: (recoveryKey) => void;
   onRestore: (recoveryKey) => void;
+  onVerifyKey: () => void;
 }
 
-export interface State {
-  userInputRecoveryKey: string;
-  hasCopied: boolean;
+interface State {
+  showFAQContent: boolean;
+  hasCopiedKey: boolean;
+  userInputKeyPhrase: string;
 }
 
 export class SecureBackup extends React.PureComponent<Properties, State> {
-  static defaultProps = { clipboard: clipboard };
-
-  state = { userInputRecoveryKey: '', hasCopied: false };
-
-  copyKey = () => {
-    this.props.clipboard.write(this.props.recoveryKey);
-    this.setState({ hasCopied: true });
+  state = {
+    showFAQContent: false,
+    hasCopiedKey: false,
+    userInputKeyPhrase: '',
   };
 
-  trackRecoveryKey = (value) => {
-    this.setState({ userInputRecoveryKey: value });
+  get existingBackupNotRestored() {
+    return this.props.backupExists && !this.props.backupRestored;
+  }
+
+  openFAQContent = (): void => {
+    this.setState({ showFAQContent: true });
   };
 
-  get isRecovered() {
-    return this.props.backupExists && this.props.isBackupRecovered && !this.props.recoveryKey;
+  closeFAQContent = (): void => {
+    this.setState({ showFAQContent: false });
+  };
+
+  get title() {
+    return this.existingBackupNotRestored ? 'Verify Login' : 'Account Backup';
   }
 
-  get noBackupExists() {
-    return !this.props.backupExists && !this.props.recoveryKey;
-  }
+  renderVideoBanner = () => {
+    if (this.state.showFAQContent) {
+      return null;
+    }
 
-  get backupNotRestored() {
-    return this.props.backupExists && !this.props.isBackupRecovered;
-  }
-
-  renderBackedUpMode() {
-    const { isLegacy } = this.props;
-    const button = isLegacy ? <Button onPress={() => this.props.onGenerate()}>Generate new backup</Button> : null;
     return (
-      <div {...cn('backed-up')}>
-        <p>This session is backing up your keys.</p>
-        <p>This backup is trusted because it has been restored on this session.</p>
-        {this.renderButtons(button)}
+      <div {...cn('video-banner')}>
+        <video {...cn('video')} src={`${this.props.videoAssetsPath}/E2EEncryption.mp4`} autoPlay loop muted />
       </div>
     );
-  }
+  };
 
-  renderNoBackupMode() {
-    return (
-      <>
-        <p>
-          Your keys are <b>not being backed up from this session.</b>
-        </p>
-        <p>Back up your keys before signing out to avoid losing them.</p>
-        {this.renderButtons(<Button onPress={() => this.props.onGenerate()}>Generate backup</Button>)}
-      </>
-    );
-  }
+  enableVerifyButton = () => {
+    this.setState({ hasCopiedKey: true });
+  };
 
-  renderCreationMode() {
-    return (
-      <>
-        <p>
-          The following recovery key has been generated for you. Click `Copy` to copy it to your clipboard. Store it in
-          a secure place such as a password manager of vault then click `Save Backup` to complete the backup process.
-        </p>
-        {this.props.recoveryKey && <div {...cn('recovery-key')}>{this.props.recoveryKey}</div>}
-        {this.renderButtons(
-          <>
-            {this.props.recoveryKey && <Button onPress={this.copyKey}>Copy</Button>}
-            <Button onPress={() => this.props.onSave()} isDisabled={!this.state.hasCopied}>
-              Save backup
-            </Button>
-          </>
-        )}
-      </>
-    );
-  }
+  moveToKeyPhraseVerify = () => {
+    this.setState({ hasCopiedKey: false });
+    this.props.onVerifyKey();
+  };
 
-  renderRestoreMode() {
-    return (
-      <>
-        <Input
-          placeholder='Enter your recovery key'
-          onChange={this.trackRecoveryKey}
-          value={this.state.userInputRecoveryKey}
-        />
-        {this.renderButtons(
-          <Button onPress={() => this.props.onRestore(this.state.userInputRecoveryKey)}>Restore backup</Button>
-        )}
-      </>
-    );
-  }
+  trackKeyPhrase = (value) => {
+    this.setState({ userInputKeyPhrase: value });
+  };
 
-  renderButtons = (buttons) => {
-    return (
-      <>
-        <div {...cn('messages')}>
-          {this.props.successMessage && <Alert variant='success'>{this.props.successMessage}</Alert>}
-          {this.props.errorMessage && <Alert variant='error'>{this.props.errorMessage}</Alert>}
-        </div>
-        <div {...cn('footer')}>{buttons}</div>
-      </>
-    );
+  returnToGenerate = () => {
+    this.setState({ userInputKeyPhrase: '' });
+    this.props.onGenerate();
+  };
+
+  saveBackup = () => {
+    this.props.onSave(this.state.userInputKeyPhrase);
+    this.setState({ userInputKeyPhrase: '' });
+  };
+
+  restoreBackup = () => {
+    this.props.onRestore(this.state.userInputKeyPhrase);
+    this.setState({ userInputKeyPhrase: '' });
+  };
+
+  configForStage = () => {
+    if (this.props.isLoading) {
+      return { content: <LoadingIndicator /> };
+    }
+
+    if (this.state.showFAQContent) {
+      return { content: <BackupFAQ onBack={this.closeFAQContent} /> };
+    }
+
+    const { backupStage, onGenerate, onVerifyKey, onClose, recoveryKey, errorMessage, successMessage } = this.props;
+
+    let content = null;
+    switch (backupStage) {
+      case BackupStage.UserGeneratePrompt:
+        return {
+          primaryText: 'Backup my account',
+          onPrimary: onGenerate,
+          content: <GeneratePrompt errorMessage={errorMessage} onLearnMore={this.openFAQContent} />,
+        };
+
+      case BackupStage.UserRestorePrompt:
+        return {
+          primaryText: 'Verify with backup phrase',
+          onPrimary: onVerifyKey,
+          content: <RestorePrompt onLearnMore={this.openFAQContent} />,
+        };
+
+      case BackupStage.SystemGeneratePrompt:
+        return {
+          primaryText: 'Backup my account',
+          onPrimary: onGenerate,
+          secondaryText: 'Backup later',
+          secondaryColor: Color.Red,
+          onSecondary: onClose,
+          content: <GeneratePrompt isSystemPrompt errorMessage={errorMessage} onLearnMore={this.openFAQContent} />,
+        };
+
+      case BackupStage.SystemRestorePrompt:
+        return {
+          primaryText: 'Verify with backup phrase',
+          onPrimary: onVerifyKey,
+          secondaryText: 'Continue Without Verifying',
+          secondaryColor: Color.Greyscale,
+          onSecondary: onClose,
+          content: <RestorePrompt isSystemPrompt onLearnMore={this.openFAQContent} />,
+        };
+
+      case BackupStage.RecoveredBackupInfo:
+        return {
+          primaryText: 'Dismiss',
+          onPrimary: this.props.onClose,
+          content: <RecoveredBackup onLearnMore={this.openFAQContent} />,
+        };
+
+      case BackupStage.GenerateBackup:
+        return {
+          primaryText: "I've safely stored my backup",
+          primaryDisabled: !this.state.hasCopiedKey,
+          onPrimary: this.moveToKeyPhraseVerify,
+          content: (
+            <GenerateBackup
+              recoveryKey={recoveryKey}
+              errorMessage={errorMessage}
+              onKeyCopied={this.enableVerifyButton}
+            />
+          ),
+        };
+
+      case BackupStage.RestoreBackup:
+        return {
+          primaryText: 'Verify',
+          primaryDisabled: !this.state.userInputKeyPhrase,
+          onPrimary: this.restoreBackup,
+          content: <RestoreBackup errorMessage={errorMessage} onChange={this.trackKeyPhrase} />,
+        };
+
+      case BackupStage.VerifyKeyPhrase:
+        return {
+          primaryText: 'Verify and complete backup',
+          primaryDisabled: !this.state.userInputKeyPhrase,
+          onPrimary: this.saveBackup,
+          secondaryText: 'Back to phrase',
+          secondaryColor: Color.Greyscale,
+          onSecondary: this.returnToGenerate,
+          content: <VerifyKeyPhrase errorMessage={errorMessage} onChange={this.trackKeyPhrase} />,
+        };
+
+      case BackupStage.Success:
+        return {
+          primaryText: 'Finish',
+          onPrimary: this.props.onClose,
+          content: <Success successMessage={successMessage} />,
+        };
+
+      default:
+        assertAllValuesConsumed(backupStage);
+    }
+
+    return {
+      content,
+    };
   };
 
   render() {
+    const { primaryText, primaryDisabled, onPrimary, secondaryText, secondaryColor, onSecondary, content } =
+      this.configForStage();
+
     return (
-      <div {...cn()}>
-        <div {...cn('header')}>
-          <h3 {...cn('title')}>Secure Backup</h3>
-          <IconButton {...cn('close')} Icon={IconXClose} onClick={this.props.onClose} size={32} />
+      <Modal
+        title={this.title}
+        primaryText={primaryText}
+        primaryDisabled={primaryDisabled}
+        secondaryText={secondaryText}
+        secondaryColor={secondaryColor}
+        onPrimary={onPrimary}
+        onSecondary={onSecondary}
+        onClose={this.props.onClose}
+      >
+        <div {...cn()}>
+          {this.renderVideoBanner()}
+          {content}
         </div>
-        <p>
-          Back up your encryption keys with your account data in case you lose access to your sessions. Your keys will
-          be secured with a unique Security Key.
-        </p>
-        {this.isRecovered && this.renderBackedUpMode()}
-        {this.noBackupExists && this.renderNoBackupMode()}
-        {this.props.recoveryKey && this.renderCreationMode()}
-        {this.backupNotRestored && this.renderRestoreMode()}
-      </div>
+      </Modal>
     );
   }
 }

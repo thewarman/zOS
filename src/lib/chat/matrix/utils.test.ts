@@ -1,5 +1,5 @@
 // Import your function and any necessary dependencies
-import { getFilteredMembersForAutoComplete } from './utils';
+import { constructFallbackForParentMessage, getFilteredMembersForAutoComplete, parsePlainBody } from './utils';
 
 // Example room members data
 const roomMembers: any[] = [
@@ -83,5 +83,71 @@ describe('getFilteredMembersForAutoComplete', () => {
         profileImage: '',
       },
     ]);
+  });
+});
+
+describe(constructFallbackForParentMessage, () => {
+  it('constructs fallback content correctly for a valid parent message', () => {
+    const parentMessage = {
+      messageId: 123,
+      sender: { matrixId: '@user:example.org' },
+      message: 'This is the first line\nThis is the second line',
+    };
+
+    const fallback = constructFallbackForParentMessage(parentMessage);
+
+    expect(fallback).toEqual('> <@user:example.org> This is the first line\n> This is the second line');
+  });
+
+  it('returns an empty string if parent message is empty', () => {
+    const parentMessage = { messageId: 123, sender: { matrixId: '@user:example.org' }, message: '' };
+
+    const fallback = constructFallbackForParentMessage(parentMessage);
+
+    expect(fallback).toEqual('');
+  });
+});
+
+describe(parsePlainBody, () => {
+  it("filters out lines starting with '> '", () => {
+    const body = '> <@user:example.org> This is the first line\n> This is the second line\n\nThis is the reply message';
+    const expected = 'This is the reply message';
+
+    expect(parsePlainBody(body)).toEqual(expected);
+  });
+
+  it('returns an empty string if all lines are whitespace or quoted', () => {
+    const body = '> Quoted line\n    \n> Another quoted line';
+    expect(parsePlainBody(body)).toEqual('');
+  });
+
+  it('preserves intentional formatting within the message', () => {
+    const body = '> Quoted line\n\nIntentionally formatted message\nWith multiple lines';
+    const expected = 'Intentionally formatted message\nWith multiple lines';
+    expect(parsePlainBody(body)).toEqual(expected);
+  });
+
+  it('removes leading and trailing whitespace around the message', () => {
+    const body = '\n\n> Quoted line\n\nMessage with leading and trailing whitespace\n\n';
+    const expected = 'Message with leading and trailing whitespace';
+    expect(parsePlainBody(body)).toEqual(expected);
+  });
+
+  it('preserves URLs that follow a quoted line', () => {
+    const body = '> Quoted text\nhttps://example.com';
+    const expected = 'https://example.com';
+    expect(parsePlainBody(body)).toEqual(expected);
+  });
+
+  it('handles messages with URLs surrounded by whitespace', () => {
+    const body = '\n\n https://example.com \n\n';
+    const expected = 'https://example.com';
+    expect(parsePlainBody(body)).toEqual(expected);
+  });
+
+  it('keeps URLs intact within complex messages', () => {
+    const body = '> Quoted line\n\nBefore URL text\nhttps://example.com\nAfter URL text';
+    const expected = 'Before URL text\nhttps://example.com\nAfter URL text';
+    expect(parsePlainBody(body)).toEqual(expected);
   });
 });

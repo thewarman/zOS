@@ -7,8 +7,6 @@ import InvertedScroll from '../inverted-scroll';
 import { Lightbox } from '@zer0-os/zos-component-library';
 import { User } from '../../store/authentication/types';
 import { User as ChannelMember } from '../../store/channels';
-import { IfAuthenticated } from '../authentication/if-authenticated';
-import { Button as ComponentButton } from '@zer0-os/zos-component-library';
 import { ParentMessage } from '../../lib/chat/types';
 import { searchMentionableUsersForChannel } from '../../platform-apps/channels/util/api';
 import { Message } from '../message';
@@ -38,7 +36,6 @@ export interface Properties {
   onFetchMore: () => void;
   fetchMessages: (payload: PayloadFetchMessages) => void;
   user: User;
-  hasJoined: boolean;
   deleteMessage: (messageId: number) => void;
   editMessage: (
     messageId: number,
@@ -47,9 +44,8 @@ export interface Properties {
     data?: Partial<EditMessageOptions>
   ) => void;
   onReply: ({ reply }: { reply: ParentMessage }) => void;
-  joinChannel: () => void;
+  onHiddenMessageInfoClick: () => void;
   className?: string;
-  isDirectMessage: boolean;
   showSenderAvatar?: boolean;
   isOneOnOne: boolean;
   conversationErrorMessage: string;
@@ -59,15 +55,20 @@ export interface State {
   lightboxMedia: any[];
   lightboxStartIndex: number;
   isLightboxOpen: boolean;
+  rendered: boolean;
 }
 
 export class ChatView extends React.Component<Properties, State> {
   scrollContainerRef: React.RefObject<InvertedScroll>;
-  state = { lightboxMedia: [], lightboxStartIndex: 0, isLightboxOpen: false };
+  state = { lightboxMedia: [], lightboxStartIndex: 0, isLightboxOpen: false, rendered: false };
 
   constructor(props) {
     super(props);
     this.scrollContainerRef = React.createRef();
+  }
+
+  componentDidMount(): void {
+    this.setState({ rendered: true });
   }
 
   scrollToBottom = () => {
@@ -152,6 +153,7 @@ export class ChatView extends React.Component<Properties, State> {
                 messageId={message.id}
                 updatedAt={message.updatedAt}
                 isOwner={this.isUserOwnerOfMessage(message)}
+                isHidden={message.isHidden}
                 onDelete={this.props.deleteMessage}
                 onEdit={this.props.editMessage}
                 onReply={this.props.onReply}
@@ -163,6 +165,7 @@ export class ChatView extends React.Component<Properties, State> {
                 showSenderAvatar={this.props.showSenderAvatar}
                 showTimestamp={messageRenderProps.showTimestamp}
                 showAuthorName={messageRenderProps.showAuthorName}
+                onHiddenMessageInfoClick={this.props.onHiddenMessageInfoClick}
                 {...message}
               />
             </div>
@@ -188,22 +191,15 @@ export class ChatView extends React.Component<Properties, State> {
   renderMessages() {
     const messagesByDay = this.getMessagesByDay();
     const filteredMessagesByDay = filterAdminMessages(messagesByDay);
+    const cn = bemClassName('messages');
 
     return (
-      <div className='messages__container'>
+      <div {...cn('container', this.state.rendered && 'rendered')}>
         {Object.keys(filteredMessagesByDay)
           .sort((a, b) => (a > b ? 1 : -1))
           .map((day) => {
             return this.renderDay(day, { [day]: filteredMessagesByDay[day] });
           })}
-      </div>
-    );
-  }
-
-  renderJoinButton() {
-    return (
-      <div onClick={this.props.joinChannel} className={classNames(this.props.className, 'channel-view__join-wrapper')}>
-        <ComponentButton>Join Channel</ComponentButton>
       </div>
     );
   }
@@ -227,7 +223,6 @@ export class ChatView extends React.Component<Properties, State> {
 
   render() {
     const { isLightboxOpen, lightboxMedia, lightboxStartIndex } = this.state;
-    const { hasJoined: isMemberOfChannel } = this.props;
 
     return (
       <div className={classNames('channel-view', this.props.className)}>
@@ -246,12 +241,6 @@ export class ChatView extends React.Component<Properties, State> {
         )}
         <InvertedScroll className='channel-view__inverted-scroll' ref={this.scrollContainerRef}>
           <div className='channel-view__main'>
-            {!this.props.isDirectMessage && (
-              <div className='channel-view__name'>
-                <h1>Welcome to #{this.props.name}</h1>
-                <span>This is the start of the channel.</span>
-              </div>
-            )}
             {this.props.hasLoadedMessages && this.props.messagesFetchStatus === MessagesFetchState.MORE_IN_PROGRESS && (
               <div {...cn('scroll-skeleton')}>
                 <ChatSkeleton conversationId={this.props.id} short />
@@ -267,31 +256,23 @@ export class ChatView extends React.Component<Properties, State> {
               <ChatSkeleton conversationId={this.props.id} />
             )}
           </div>
-        </InvertedScroll>
 
-        {this.props.messagesFetchStatus === MessagesFetchState.FAILED && (
-          <div className='channel-view__failure-message'>
-            {this.failureMessage}&nbsp;
-            <div
-              className='channel-view__try-reload'
-              onClick={() => {
-                this.props.fetchMessages({ channelId: this.props.id });
-              }}
-            >
-              Try Reload
+          {this.props.messagesFetchStatus === MessagesFetchState.FAILED && (
+            <div {...cn('failure-message')}>
+              {this.failureMessage}&nbsp;
+              <span
+                {...cn('try-reload')}
+                onClick={() => {
+                  this.props.fetchMessages({ channelId: this.props.id });
+                }}
+              >
+                Try Reload
+              </span>
             </div>
-          </div>
-        )}
-
-        {/* i think we can remove the entire code below */}
-        <IfAuthenticated showChildren>
-          {isMemberOfChannel && (
-            <>
-              {this.props.conversationErrorMessage && <div {...cn('error')}>{this.props.conversationErrorMessage}</div>}
-            </>
           )}
-          {!isMemberOfChannel && this.renderJoinButton()}
-        </IfAuthenticated>
+
+          {this.props.conversationErrorMessage && <div {...cn('error')}>{this.props.conversationErrorMessage}</div>}
+        </InvertedScroll>
       </div>
     );
   }

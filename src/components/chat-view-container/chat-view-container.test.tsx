@@ -13,7 +13,6 @@ describe('ChannelViewContainer', () => {
       channel: null,
       channelId: '',
       fetchMessages: () => undefined,
-      joinChannel: () => undefined,
       user: {
         isLoading: false,
         data: null,
@@ -107,24 +106,6 @@ describe('ChannelViewContainer', () => {
     expect(wrapper.find(ChatView).prop('name')).toStrictEqual('first channel');
   });
 
-  it('passes hasJoined to channel view', () => {
-    const wrapper = subject({ channel: { hasJoined: true } });
-
-    expect(wrapper.find(ChatView).prop('hasJoined')).toStrictEqual(true);
-  });
-
-  it('passes hasJoined or is direct message to channel view', () => {
-    const wrapper = subject({ channel: { hasJoined: false }, isDirectMessage: true });
-
-    expect(wrapper.find(ChatView).prop('hasJoined')).toStrictEqual(true);
-  });
-
-  it('passes is direct message to channel view', () => {
-    const wrapper = subject({ channel: {}, isDirectMessage: true });
-
-    expect(wrapper.find(ChatView).prop('isDirectMessage')).toStrictEqual(true);
-  });
-
   it('fetches messages on mount', () => {
     const fetchMessages = jest.fn();
 
@@ -181,20 +162,6 @@ describe('ChannelViewContainer', () => {
       channelId: 'the-channel-id',
       referenceTimestamp: 1658776625730,
     });
-  });
-
-  it('should call joinChannel when join button is clicked', () => {
-    const joinChannel = jest.fn();
-
-    const wrapper = subject({
-      joinChannel,
-      channelId: 'the-channel-id',
-      channel: { hasMore: true, name: 'first channel' },
-    });
-
-    wrapper.find(ChatView).first().prop('joinChannel')();
-
-    expect(joinChannel).toHaveBeenCalledOnce();
   });
 
   it('should call deleteMessage', () => {

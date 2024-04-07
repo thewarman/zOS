@@ -69,6 +69,9 @@ const getSdkClient = (sdkClient = {}) => ({
   paginateEventTimeline: () => true,
   isRoomEncrypted: () => true,
   invite: jest.fn().mockResolvedValue({}),
+  setRoomTag: jest.fn().mockResolvedValue({}),
+  deleteRoomTag: jest.fn().mockResolvedValue({}),
+  getRoomTags: jest.fn().mockResolvedValue({}),
   ...sdkClient,
 });
 
@@ -789,6 +792,76 @@ describe('matrix client', () => {
       const result = await client.getRoomIdForAlias('#test-room:zos-dev.zero.io');
 
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe('addRoomToFavorites', () => {
+    it('sets room tag with "m.favorite"', async () => {
+      const roomId = '!testRoomId';
+      const setRoomTag = jest.fn().mockResolvedValue({});
+
+      const client = subject({
+        createClient: jest.fn(() => getSdkClient({ setRoomTag })),
+      });
+
+      await client.connect(null, 'token');
+      await client.addRoomToFavorites(roomId);
+
+      expect(setRoomTag).toHaveBeenCalledWith(roomId, 'm.favorite');
+    });
+  });
+
+  describe('removeRoomFromFavorites', () => {
+    it('deletes "m.favorite" tag from room', async () => {
+      const roomId = '!testRoomId';
+      const deleteRoomTag = jest.fn().mockResolvedValue({});
+
+      const client = subject({
+        createClient: jest.fn(() => getSdkClient({ deleteRoomTag })),
+      });
+
+      await client.connect(null, 'token');
+      await client.removeRoomFromFavorites(roomId);
+
+      expect(deleteRoomTag).toHaveBeenCalledWith(roomId, 'm.favorite');
+    });
+  });
+
+  describe('isRoomFavorited', () => {
+    it('returns true if "m.favorite" tag is present for room', async () => {
+      const roomId = '!testRoomId';
+      const getRoomTags = jest.fn().mockResolvedValue({
+        tags: {
+          'm.favorite': {},
+        },
+      });
+
+      const client = subject({
+        createClient: jest.fn(() => getSdkClient({ getRoomTags })),
+      });
+
+      await client.connect(null, 'token');
+      const isFavorite = await client.isRoomFavorited(roomId);
+
+      expect(getRoomTags).toHaveBeenCalledWith(roomId);
+      expect(isFavorite).toBe(true);
+    });
+
+    it('returns false if "m.favorite" tag is not present for room', async () => {
+      const roomId = '!testRoomId';
+      const getRoomTags = jest.fn().mockResolvedValue({
+        tags: {},
+      });
+
+      const client = subject({
+        createClient: jest.fn(() => getSdkClient({ getRoomTags })),
+      });
+
+      await client.connect(null, 'token');
+      const isFavorite = await client.isRoomFavorited(roomId);
+
+      expect(getRoomTags).toHaveBeenCalledWith(roomId);
+      expect(isFavorite).toBe(false);
     });
   });
 });

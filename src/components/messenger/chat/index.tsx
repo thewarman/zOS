@@ -14,7 +14,6 @@ import {
   startEditConversation,
   viewGroupInformation,
 } from '../../../store/group-management';
-import { Modal } from '@zero-tech/zui/components';
 import { LeaveGroupDialogContainer } from '../../group-management/leave-group-dialog/container';
 import { JoiningConversationDialog } from '../../joining-conversation-dialog';
 import { MessageInput } from '../../message-input/container';
@@ -31,6 +30,10 @@ export interface Properties extends PublicProperties {
   directMessage: Channel;
   isCurrentUserRoomAdmin: boolean;
   isJoiningConversation: boolean;
+  canLeaveRoom: boolean;
+  canEdit: boolean;
+  canAddMembers: boolean;
+  canViewDetails: boolean;
   startAddGroupMember: () => void;
   startEditConversation: () => void;
   leaveGroupDialogStatus: LeaveGroupDialogStatus;
@@ -57,6 +60,10 @@ export class Container extends React.Component<Properties> {
     const directMessage = denormalize(activeConversationId, state);
     const currentUser = currentUserSelector(state);
     const isCurrentUserRoomAdmin = directMessage?.adminMatrixIds?.includes(currentUser?.matrixId) ?? false;
+    const canLeaveRoom = !isCurrentUserRoomAdmin && (directMessage?.otherMembers || []).length > 1;
+    const canEdit = isCurrentUserRoomAdmin && !directMessage?.isOneOnOne;
+    const canAddMembers = isCurrentUserRoomAdmin && !directMessage?.isOneOnOne;
+    const canViewDetails = !directMessage?.isOneOnOne;
 
     return {
       activeConversationId,
@@ -64,6 +71,10 @@ export class Container extends React.Component<Properties> {
       isCurrentUserRoomAdmin,
       leaveGroupDialogStatus: groupManagement.leaveGroupDialogStatus,
       isJoiningConversation,
+      canLeaveRoom,
+      canEdit,
+      canAddMembers,
+      canViewDetails,
     };
   }
 
@@ -94,19 +105,13 @@ export class Container extends React.Component<Properties> {
     this.props.setLeaveGroupStatus(LeaveGroupDialogStatus.CLOSED);
   };
 
-  onViewGroupInformation = () => {
-    this.props.viewGroupInformation();
-  };
-
   renderLeaveGroupDialog = (): JSX.Element => {
     return (
-      <Modal open={this.isLeaveGroupDialogOpen} onOpenChange={this.closeLeaveGroupDialog}>
-        <LeaveGroupDialogContainer
-          groupName={this.props.directMessage.name}
-          onClose={this.closeLeaveGroupDialog}
-          roomId={this.props.activeConversationId}
-        />
-      </Modal>
+      <LeaveGroupDialogContainer
+        groupName={this.props.directMessage.name}
+        onClose={this.closeLeaveGroupDialog}
+        roomId={this.props.activeConversationId}
+      />
     );
   };
 
@@ -160,14 +165,12 @@ export class Container extends React.Component<Properties> {
                 name={this.props.directMessage.name}
                 isOneOnOne={this.isOneOnOne()}
                 otherMembers={this.props.directMessage.otherMembers || []}
-                canAddMembers={this.props.isCurrentUserRoomAdmin && !this.isOneOnOne()}
-                canLeaveRoom={
-                  !this.props.isCurrentUserRoomAdmin && (this.props.directMessage.otherMembers || []).length > 1
-                }
-                canEdit={this.props.isCurrentUserRoomAdmin && !this.isOneOnOne()}
-                canViewDetails={!this.isOneOnOne()}
+                canAddMembers={this.props.canAddMembers}
+                canLeaveRoom={this.props.canLeaveRoom}
+                canEdit={this.props.canEdit}
+                canViewDetails={this.props.canViewDetails}
                 onLeaveRoom={this.openLeaveGroupDialog}
-                onViewDetails={this.onViewGroupInformation}
+                onViewDetails={this.props.viewGroupInformation}
                 onAddMember={this.props.startAddGroupMember}
                 onEdit={this.props.startEditConversation}
               />
@@ -179,7 +182,6 @@ export class Container extends React.Component<Properties> {
               key={this.props.directMessage.optimisticId || this.props.directMessage.id} // Render new component for a new chat
               channelId={this.props.activeConversationId}
               className='direct-message-chat__channel'
-              isDirectMessage
               showSenderAvatar={!this.isOneOnOne()}
               ref={this.chatViewContainerRef}
             />

@@ -1,4 +1,4 @@
-import { call, delay, put, select, spawn, takeEvery, takeLatest } from 'redux-saga/effects';
+import { call, delay, put, select, spawn, takeEvery } from 'redux-saga/effects';
 import getDeepProperty from 'lodash.get';
 
 import {
@@ -9,6 +9,7 @@ import {
   setMeowInUSD,
   setMeowPreviousDay,
   setShowRewardsInPopup,
+  setShowNewRewardsIndicator,
 } from '.';
 import { RewardsResp, fetchCurrentMeowPriceInUSD as fetchCurrentMeowPriceInUSDAPI, fetchRewards } from './api';
 import { takeEveryFromBus } from '../../lib/saga';
@@ -37,14 +38,14 @@ export function* fetch(_action) {
     if (result.success) {
       yield put(setMeow(result.response.meow.toString()));
       yield put(setMeowPreviousDay(result.response.meowPreviousDay.toString()));
-
-      yield call(checkNewRewardsLoaded);
     } else {
     }
   } catch (e) {
   } finally {
     yield put(setLoading(false));
   }
+
+  yield call(checkNewRewardsLoaded);
 }
 
 export function* syncFetchRewards() {
@@ -67,38 +68,46 @@ export function* syncRewardsAndTokenPrice() {
   if (!featureFlags.enableRewards) {
     return;
   }
-
-  yield spawn(syncFetchRewards);
   yield spawn(syncMEOWPrice);
+  yield spawn(syncFetchRewards);
+}
+
+export function* closeRewardsTooltipAfterDelay() {
+  yield delay(3000);
+  yield call(closeRewardsTooltip);
 }
 
 export function* checkNewRewardsLoaded() {
-  const meowPreviousDay = yield select((state) => getDeepProperty(state, 'rewards.meowPreviousDay'));
-  const meowTotal = yield select((state) => getDeepProperty(state, 'rewards.meow'));
   const isFirstTimeLogin = yield select((state) => getDeepProperty(state, 'registration.isFirstTimeLogin'));
-  const isMessengerFullScreen = yield select((state) => getDeepProperty(state, 'layout.value.isMessengerFullScreen'));
+  if (isFirstTimeLogin) {
+    return;
+  }
 
-  if (isMessengerFullScreen && !isFirstTimeLogin && meowPreviousDay !== '0') {
+  const { meowPreviousDay, meow, meowInUSD: meowTokenPrice } = yield select((state) => state.rewards);
+  if (meowTokenPrice === 0) {
+    yield call(fetchCurrentMeowPriceInUSD);
+  }
+
+  if (meowPreviousDay !== '0') {
     if (localStorage.getItem(lastDayRewardsKey) !== meowPreviousDay) {
       yield put(setShowRewardsInTooltip(true));
+
+      yield spawn(closeRewardsTooltipAfterDelay);
     }
 
-    if (localStorage.getItem(totalRewardsKey) !== meowTotal) {
-      yield put(setShowRewardsInPopup(true));
+    if (localStorage.getItem(totalRewardsKey) !== meow) {
+      yield put(setShowNewRewardsIndicator(true));
     }
   }
 }
 
-export function* rewardsPopupClosed() {
-  // set last viewed "total" rewards to the current rewards when the popup is closed
-  const { meow, showRewardsInPopup } = yield select((state) => state.rewards);
-  if (showRewardsInPopup) {
-    localStorage.setItem(totalRewardsKey, meow);
-    yield put(setShowRewardsInPopup(false));
-  }
+export function* totalRewardsViewed() {
+  const { meow } = yield select((state) => state.rewards);
+  localStorage.setItem(totalRewardsKey, meow);
+  yield put(setShowNewRewardsIndicator(false));
 }
 
-export function* rewardsTooltipClosed() {
+export function* closeRewardsTooltip() {
   // set last viewed "daily" rewards to the current rewards when the popup is closed
   const { meowPreviousDay, showRewardsInTooltip } = yield select((state) => state.rewards);
   if (showRewardsInTooltip) {
@@ -114,11 +123,12 @@ function* clearOnLogout() {
   yield put(setMeowInUSD(0.0));
   yield put(setShowRewardsInTooltip(false));
   yield put(setShowRewardsInPopup(false));
+  yield put(setShowNewRewardsIndicator(false));
 }
 
 export function* saga() {
-  yield takeLatest(SagaActionTypes.Fetch, syncRewardsAndTokenPrice);
-  yield takeEvery(SagaActionTypes.RewardsPopupClosed, rewardsPopupClosed);
-  yield takeEvery(SagaActionTypes.RewardsTooltipClosed, rewardsTooltipClosed);
+  yield takeEvery(SagaActionTypes.TotalRewardsViewed, totalRewardsViewed);
+  yield takeEvery(SagaActionTypes.CloseRewardsTooltip, closeRewardsTooltip);
+  yield takeEveryFromBus(yield call(getAuthChannel), AuthEvents.UserLogin, syncRewardsAndTokenPrice);
   yield takeEveryFromBus(yield call(getAuthChannel), AuthEvents.UserLogout, clearOnLogout);
 }

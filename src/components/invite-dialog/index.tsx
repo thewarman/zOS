@@ -5,6 +5,7 @@ import { IconXClose } from '@zero-tech/zui/icons';
 
 import { clipboard } from '../../lib/clipboard';
 import { bemClassName } from '../../lib/bem';
+import { config } from '../../config';
 
 import './styles.scss';
 
@@ -16,8 +17,7 @@ export interface Clipboard {
 
 export interface Properties {
   inviteCode: string;
-  invitesUsed: number;
-  maxUses: number;
+  inviteCount: number;
   inviteUrl: string;
   assetsPath: string;
   isLoading: boolean;
@@ -41,11 +41,11 @@ export class InviteDialog extends React.Component<Properties, State> {
   }
 
   getInvitesRemaining() {
-    return Math.max(this.props.maxUses - this.props.invitesUsed, 0);
+    return this.props.inviteCount;
   }
 
   get inviteText() {
-    return this.props.inviteCode;
+    return `Use this code to join me on ZERO Messenger: ${this.props.inviteCode} ${config.inviteUrl}`;
   }
 
   writeInviteToClipboard = async () => {

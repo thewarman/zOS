@@ -1,9 +1,8 @@
 import { createAction, createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 export enum SagaActionTypes {
-  Fetch = 'rewards/fetch',
-  RewardsPopupClosed = 'registration/rewardsPopupClosed',
-  RewardsTooltipClosed = 'registration/rewardsTooltipClosed',
+  TotalRewardsViewed = 'rewards/totalRewardsViewed',
+  CloseRewardsTooltip = 'registration/closeRewardsTooltip',
 }
 
 export type RewardsState = {
@@ -13,6 +12,7 @@ export type RewardsState = {
   meowPreviousDay: string;
   showRewardsInTooltip: boolean;
   showRewardsInPopup: boolean;
+  showNewRewardsIndicator: boolean;
 };
 
 export const initialState: RewardsState = {
@@ -22,11 +22,11 @@ export const initialState: RewardsState = {
   meowPreviousDay: '0',
   showRewardsInTooltip: false,
   showRewardsInPopup: false,
+  showNewRewardsIndicator: false,
 };
 
-export const fetch = createAction<{}>(SagaActionTypes.Fetch);
-export const rewardsPopupClosed = createAction(SagaActionTypes.RewardsPopupClosed);
-export const rewardsTooltipClosed = createAction(SagaActionTypes.RewardsTooltipClosed);
+export const totalRewardsViewed = createAction(SagaActionTypes.TotalRewardsViewed);
+export const closeRewardsTooltip = createAction(SagaActionTypes.CloseRewardsTooltip);
 
 const slice = createSlice({
   name: 'rewards',
@@ -50,9 +50,27 @@ const slice = createSlice({
     setShowRewardsInPopup: (state, action: PayloadAction<RewardsState['showRewardsInPopup']>) => {
       state.showRewardsInPopup = action.payload;
     },
+    openRewardsDialog: (state) => {
+      state.showRewardsInPopup = true;
+    },
+    closeRewardsDialog: (state) => {
+      state.showRewardsInPopup = false;
+    },
+    setShowNewRewardsIndicator: (state, action: PayloadAction<RewardsState['showNewRewardsIndicator']>) => {
+      state.showNewRewardsIndicator = action.payload;
+    },
   },
 });
 
-export const { setLoading, setMeow, setMeowPreviousDay, setMeowInUSD, setShowRewardsInTooltip, setShowRewardsInPopup } =
-  slice.actions;
+export const {
+  closeRewardsDialog,
+  openRewardsDialog,
+  setLoading,
+  setMeow,
+  setMeowPreviousDay,
+  setMeowInUSD,
+  setShowRewardsInTooltip,
+  setShowRewardsInPopup,
+  setShowNewRewardsIndicator,
+} = slice.actions;
 export const { reducer } = slice;

@@ -7,15 +7,15 @@ import {
   nonceOrAuthorize,
   terminate,
   getCurrentUserWithChatAccessToken,
-  initializeUserState,
   clearUserState,
-  logout,
+  forceLogout,
   redirectUnauthenticatedUser,
   completeUserLogin,
   publishUserLogin,
   publishUserLogout,
   authenticateByEmail,
   setAuthentication,
+  logoutRequest,
 } from './saga';
 import {
   nonceOrAuthorize as nonceOrAuthorizeApi,
@@ -27,15 +27,14 @@ import {
 import { reducer } from '.';
 import { setChatAccessToken } from '../chat';
 import { receive } from '../channels-list';
-import { update } from '../layout';
 import { rootReducer } from '../reducer';
 import { clearChannelsAndConversations } from '../channels-list/saga';
-import { clearUserLayout } from '../layout/saga';
 import { clearMessages } from '../messages/saga';
 import { clearUsers } from '../users/saga';
 import { updateConnector } from '../web3/saga';
 import { Connectors } from '../../lib/web3';
 import { completePendingUserProfile } from '../registration/saga';
+import { StoreBuilder } from '../test/store';
 
 describe(nonceOrAuthorize, () => {
   const signedWeb3Token = '0x000000000000000000000000000000000000000A';
@@ -92,16 +91,6 @@ describe(completeUserLogin, () => {
     expect(storeState.authentication.user).toMatchObject({ data: { fake: 'user-response' } });
   });
 
-  it('sets up user state', async () => {
-    await expectSaga(completeUserLogin)
-      .provide([
-        stubResponse(call(fetchCurrentUser), { fake: 'user-response' }),
-        ...successResponses(),
-      ])
-      .call(initializeUserState, { fake: 'user-response' })
-      .run();
-  });
-
   it('completes the pending user profile if user is in pending state', async () => {
     const user = { isPending: true };
     await expectSaga(completeUserLogin)
@@ -112,7 +101,6 @@ describe(completeUserLogin, () => {
       ])
       .withReducer(rootReducer)
       .call(completePendingUserProfile, user)
-      .not.call(initializeUserState, user)
       .run();
   });
 
@@ -131,10 +119,6 @@ describe(completeUserLogin, () => {
       [
         call(fetchCurrentUser),
         { user: 'stubbed' },
-      ],
-      [
-        matchers.call.fn(initializeUserState),
-        null,
       ],
       [
         matchers.call.fn(publishUserLogin),
@@ -251,11 +235,7 @@ describe(getCurrentUserWithChatAccessToken, () => {
 
 describe('clearUserState', () => {
   it('resets layout', async () => {
-    await expectSaga(clearUserState)
-      .put(update({ isMessengerFullScreen: true }))
-      .put(receive([]))
-      .withReducer(rootReducer)
-      .run();
+    await expectSaga(clearUserState).put(receive([])).withReducer(rootReducer).run();
   });
 
   it('verifies state reset calls', async () => {
@@ -263,25 +243,36 @@ describe('clearUserState', () => {
       .call(clearChannelsAndConversations)
       .call(clearMessages)
       .call(clearUsers)
-      .call(clearUserLayout)
       .withReducer(rootReducer)
       .run();
   });
 });
 
-describe('logout', () => {
+describe(logoutRequest, () => {
+  it('prompts the user when they try to logout', async () => {
+    const state = new StoreBuilder();
+
+    const { storeState } = await expectSaga(logoutRequest).withReducer(rootReducer, state.build()).run();
+
+    expect(storeState.authentication.displayLogoutModal).toEqual(true);
+  });
+});
+
+describe(forceLogout, () => {
   function expectLogoutSaga() {
-    return expectSaga(logout).provide([
-      [
-        matchers.call.fn(updateConnector),
-        null,
-      ],
-      [
-        call(terminate),
-        null,
-      ],
+    return expectSaga(forceLogout).provide([
+      [matchers.call.fn(updateConnector), null],
+      [call(terminate), null],
     ]);
   }
+
+  it('closes the logout modal', async () => {
+    const state = new StoreBuilder().withOtherState({ authentication: { displayLogoutModal: true, user: {} } });
+
+    const { storeState } = await expectLogoutSaga().withReducer(rootReducer, state.build()).run();
+
+    expect(storeState.authentication.displayLogoutModal).toEqual(false);
+  });
 
   it('clears the web3 connection', async () => {
     await expectLogoutSaga().call(updateConnector, { payload: Connectors.None }).run();

@@ -2,7 +2,7 @@ import React from 'react';
 import { connectContainer } from '../../../store/redux-container';
 import { RootState } from '../../../store/reducer';
 import { Channel } from '../../../store/channels';
-import { openConversation } from '../../../store/channels';
+import { openConversation, onFavoriteRoom, onUnfavoriteRoom } from '../../../store/channels';
 import { denormalizeConversations } from '../../../store/channels-list';
 import { compareDatesDesc } from '../../../lib/date';
 import { MemberNetworks } from '../../../store/users/types';
@@ -26,8 +26,7 @@ import { GroupDetailsPanel } from './group-details-panel';
 import { Option } from '../lib/types';
 import { MembersSelectedPayload } from '../../../store/create-conversation/types';
 import { getMessagePreview, previewDisplayDate } from '../../../lib/chat/chat-message';
-import { Modal, ToastNotification } from '@zero-tech/zui/components';
-import { InviteDialogContainer } from '../../invite-dialog/container';
+import { Modal } from '@zero-tech/zui/components';
 import { ErrorDialog } from '../../error-dialog';
 import { ErrorDialogContent } from '../../../store/chat/types';
 import { receiveSearchResults } from '../../../store/users';
@@ -41,6 +40,9 @@ import { closeBackupDialog } from '../../../store/matrix';
 import { bemClassName } from '../../../lib/bem';
 import './styles.scss';
 import { SecureBackupContainer } from '../../secure-backup/container';
+import { LogoutConfirmationModalContainer } from '../../logout-confirmation-modal/container';
+import { RewardsModalContainer } from '../../rewards-modal/container';
+import { closeRewardsDialog } from '../../../store/rewards';
 
 const cn = bemClassName('direct-message-members');
 
@@ -56,12 +58,14 @@ export interface Properties extends PublicProperties {
   userHandle: string;
   userAvatarUrl: string;
   userIsOnline: boolean;
-  isInviteNotificationOpen: boolean;
   myUserId: string;
   activeConversationId?: string;
   groupManangemenetStage: GroupManagementSagaStage;
   joinRoomErrorContent: ErrorDialogContent;
   isBackupDialogOpen: boolean;
+  isRewardsDialogOpen: boolean;
+  displayLogoutModal: boolean;
+  showRewardsTooltip: boolean;
 
   startCreateConversation: () => void;
   startGroup: () => void;
@@ -73,10 +77,12 @@ export interface Properties extends PublicProperties {
   receiveSearchResults: (data) => void;
   closeConversationErrorDialog: () => void;
   closeBackupDialog: () => void;
+  closeRewardsDialog: () => void;
+  onFavoriteRoom: (payload: { roomId: string }) => void;
+  onUnfavoriteRoom: (payload: { roomId: string }) => void;
 }
 
 interface State {
-  isInviteDialogOpen: boolean;
   isVerifyIdDialogOpen: boolean;
 }
 
@@ -85,10 +91,11 @@ export class Container extends React.Component<Properties, State> {
     const {
       createConversation,
       registration,
-      authentication: { user },
+      authentication: { user, displayLogoutModal },
       chat: { activeConversationId, joinRoomErrorContent },
       groupManagement,
       matrix: { isBackupDialogOpen },
+      rewards,
     } = state;
 
     const conversations = denormalizeConversations(state).map(addLastMessageMeta(state)).sort(byLastMessageOrCreation);
@@ -100,7 +107,6 @@ export class Container extends React.Component<Properties, State> {
       groupUsers: createConversation.groupUsers,
       isFetchingExistingConversations: createConversation.startGroupChat.isLoading,
       isFirstTimeLogin: registration.isFirstTimeLogin,
-      isInviteNotificationOpen: registration.isInviteToastOpen,
       userName: user?.data?.profileSummary?.firstName || '',
       userHandle,
       userAvatarUrl: user?.data?.profileSummary?.profileImage || '',
@@ -109,6 +115,9 @@ export class Container extends React.Component<Properties, State> {
       groupManangemenetStage: groupManagement.stage,
       joinRoomErrorContent,
       isBackupDialogOpen,
+      isRewardsDialogOpen: rewards.showRewardsInPopup,
+      showRewardsTooltip: rewards.showRewardsInTooltip,
+      displayLogoutModal,
     };
   }
 
@@ -124,11 +133,13 @@ export class Container extends React.Component<Properties, State> {
       receiveSearchResults,
       closeConversationErrorDialog,
       closeBackupDialog,
+      closeRewardsDialog,
+      onFavoriteRoom,
+      onUnfavoriteRoom,
     };
   }
 
   state = {
-    isInviteDialogOpen: false,
     isVerifyIdDialogOpen: false,
   };
 
@@ -159,14 +170,6 @@ export class Container extends React.Component<Properties, State> {
     this.props.createConversation(conversation);
   };
 
-  openInviteDialog = () => {
-    this.setState({ isInviteDialogOpen: true });
-  };
-
-  closeInviteDialog = () => {
-    this.setState({ isInviteDialogOpen: false });
-  };
-
   openVerifyIdDialog = () => {
     this.setState({ isVerifyIdDialogOpen: true });
   };
@@ -191,14 +194,6 @@ export class Container extends React.Component<Properties, State> {
     return !!this.props.joinRoomErrorContent;
   }
 
-  renderInviteDialog = (): JSX.Element => {
-    return (
-      <Modal open={this.state.isInviteDialogOpen} onOpenChange={this.closeInviteDialog}>
-        <InviteDialogContainer onClose={this.closeInviteDialog} />
-      </Modal>
-    );
-  };
-
   renderVerifyIdDialog = (): JSX.Element => {
     return (
       <Modal open={this.state.isVerifyIdDialogOpen} onOpenChange={this.closeVerifyIdDialog}>
@@ -222,27 +217,11 @@ export class Container extends React.Component<Properties, State> {
   };
 
   renderSecureBackupDialog = (): JSX.Element => {
-    return (
-      <Modal open={this.props.isBackupDialogOpen} onOpenChange={this.closeBackupDialog}>
-        <SecureBackupContainer onClose={this.closeBackupDialog} />
-      </Modal>
-    );
+    return <SecureBackupContainer onClose={this.closeBackupDialog} />;
   };
 
-  renderToastNotification = (): JSX.Element => {
-    return (
-      <ToastNotification
-        viewportClassName='invite-toast-notification'
-        title={'Invite your friends'}
-        description={'Build your network and message friends to earn more rewards.'}
-        actionTitle={'Invite Friends'}
-        actionAltText={'invite dialog modal call to action'}
-        positionVariant='left'
-        openToast={this.props.isInviteNotificationOpen}
-        onClick={this.openInviteDialog}
-        duration={10000}
-      />
-    );
+  renderRewardsDialog = (): JSX.Element => {
+    return <RewardsModalContainer onClose={this.props.closeRewardsDialog} />;
   };
 
   renderUserHeader() {
@@ -252,10 +231,10 @@ export class Container extends React.Component<Properties, State> {
         userName={this.props.userName}
         userHandle={this.props.userHandle}
         userAvatarUrl={this.props.userAvatarUrl}
-        includeUserSettings={true}
         startConversation={this.props.startCreateConversation}
         onLogout={this.props.logout}
         onVerifyId={this.openVerifyIdDialog}
+        showRewardsTooltip={this.props.showRewardsTooltip}
       />
     );
   }
@@ -275,6 +254,8 @@ export class Container extends React.Component<Properties, State> {
             onConversationClick={this.props.onConversationClick}
             myUserId={this.props.myUserId}
             activeConversationId={this.props.activeConversationId}
+            onFavoriteRoom={this.props.onFavoriteRoom}
+            onUnfavoriteRoom={this.props.onUnfavoriteRoom}
           />
         )}
         {this.props.stage === SagaStage.CreateOneOnOne && (
@@ -316,12 +297,11 @@ export class Container extends React.Component<Properties, State> {
 
         <div {...cn('')}>
           {this.renderPanel()}
-          {this.state.isInviteDialogOpen && this.renderInviteDialog()}
           {this.state.isVerifyIdDialogOpen && this.renderVerifyIdDialog()}
           {this.props.joinRoomErrorContent && this.renderErrorDialog()}
           {this.props.isBackupDialogOpen && this.renderSecureBackupDialog()}
-
-          {this.renderToastNotification()}
+          {this.props.displayLogoutModal && <LogoutConfirmationModalContainer />}
+          {this.props.isRewardsDialogOpen && this.renderRewardsDialog()}
         </div>
       </>
     );

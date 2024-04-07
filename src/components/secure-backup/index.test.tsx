@@ -1,137 +1,279 @@
 import { shallow } from 'enzyme';
 
 import { SecureBackup, Properties } from '.';
-import { Alert, Button, Input } from '@zero-tech/zui/components';
-import { bem } from '../../lib/bem';
-import { buttonLabelled } from '../../test/utils';
+import { BackupStage } from '../../store/matrix';
+import { GeneratePrompt } from './generate-prompt';
+import { RestorePrompt } from './restore-prompt';
+import { RecoveredBackup } from './recovered-backup';
+import { GenerateBackup } from './generate-backup';
+import { RestoreBackup } from './restore-backup';
+import { VerifyKeyPhrase } from './verify-key-phrase';
+import { Success } from './success';
+import { Modal } from '../modal';
+import { LoadingIndicator } from '@zero-tech/zui/components';
 
-const c = bem('.secure-backup');
-
-describe('SecureBackup', () => {
+describe(SecureBackup, () => {
   const subject = (props: Partial<Properties>) => {
     const allProps: Properties = {
+      isLoading: false,
       recoveryKey: 'stub-key',
       backupExists: false,
-      isBackupRecovered: false,
-      isLegacy: false,
+      backupRestored: false,
       successMessage: '',
       errorMessage: '',
+      backupStage: BackupStage.UserGeneratePrompt,
+
       onGenerate: () => null,
       onRestore: () => null,
       onSave: () => null,
       onClose: () => null,
-      clipboard: { write: () => null },
+      onVerifyKey: () => null,
+      videoAssetsPath: 'stub-assets-path',
       ...props,
     };
 
     return shallow(<SecureBackup {...allProps} />);
   };
 
-  it('generates a backup when Generate is pressed', function () {
-    const onGenerate = jest.fn();
-    const wrapper = subject({ onGenerate, recoveryKey: '' });
+  it('renders loading state', async () => {
+    const wrapper = subject({ isLoading: true });
 
-    pressButton(wrapper, 'Generate backup');
-
-    expect(onGenerate).toHaveBeenCalledOnce();
+    expect(wrapper).toHaveElement(LoadingIndicator);
   });
 
-  it('renders the recovery key when in create mode', function () {
-    const wrapper = subject({ recoveryKey: 'stuff' });
+  describe(GeneratePrompt, () => {
+    it('renders GeneratePrompt when stage is SystemGeneratePrompt', function () {
+      const wrapper = subject({ backupStage: BackupStage.SystemGeneratePrompt });
 
-    expect(wrapper.find(c('recovery-key')).text()).toEqual('stuff');
-  });
-
-  it('does not render the recovery key if none is provided', function () {
-    const wrapper = subject({ recoveryKey: '' });
-
-    expect(wrapper).not.toHaveElement(c('recovery-key'));
-  });
-
-  it('copies the recovery key to the clipboard', function () {
-    const clipboard = { write: jest.fn() };
-    const wrapper = subject({ clipboard, recoveryKey: '2938 1929' });
-
-    pressButton(wrapper, 'Copy');
-
-    expect(clipboard.write).toHaveBeenCalledWith(expect.stringContaining('2938 1929'));
-  });
-
-  it('enables the Save Backup button when code has been copied', function () {
-    const wrapper = subject({ recoveryKey: '2938 1929' });
-
-    expect(buttonLabelled(wrapper, 'Save backup').prop('isDisabled')).toBeTrue();
-    pressButton(wrapper, 'Copy');
-
-    expect(buttonLabelled(wrapper, 'Save backup').prop('isDisabled')).toBeFalse();
-  });
-
-  it('publishes event when Save is clicked', function () {
-    const onSave = jest.fn();
-    const wrapper = subject({ onSave, recoveryKey: '2938 1929' });
-
-    pressButton(wrapper, 'Copy');
-    pressButton(wrapper, 'Save backup');
-
-    expect(onSave).toHaveBeenCalledOnce();
-  });
-
-  it('does not show Restore button if backup does not exist', function () {
-    const wrapper = subject({ backupExists: false });
-
-    expect(buttonLabelled(wrapper, 'Restore backup').exists()).toBe(false);
-  });
-
-  it('publishes event when Restore is clicked', function () {
-    const onRestore = jest.fn();
-    const wrapper = subject({ onRestore, backupExists: true, recoveryKey: '' });
-
-    changeRecoveryKeyInput(wrapper, 'abcd 1234');
-    pressButton(wrapper, 'Restore backup');
-
-    expect(onRestore).toHaveBeenCalledWith('abcd 1234');
-  });
-
-  it('renders backed up state if existing backup is fully trusted', function () {
-    const onRestore = jest.fn();
-    const wrapper = subject({ onRestore, backupExists: true, isBackupRecovered: true, recoveryKey: '' });
-
-    expect(wrapper).toHaveElement(c('backed-up'));
-    expect(wrapper).not.toHaveElement(Button);
-  });
-
-  it('renders button to generate a new backup if the current one is a legacy backup', function () {
-    const onRestore = jest.fn();
-    const wrapper = subject({
-      onRestore,
-      isLegacy: true,
-      backupExists: true,
-      isBackupRecovered: true,
-      recoveryKey: '',
+      expect(wrapper.find(GeneratePrompt)).toHaveProp('isSystemPrompt', true);
     });
 
-    expect(wrapper).toHaveElement(Button);
+    it('renders GeneratePrompt when stage is UserGeneratePrompt', function () {
+      const wrapper = subject({ backupStage: BackupStage.UserGeneratePrompt });
+
+      expect(wrapper.find(GeneratePrompt).prop('isSystemPrompt')).toBeFalsy();
+    });
+
+    it('publishes onGenerate for system prompt', function () {
+      const onGenerate = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.SystemGeneratePrompt, onGenerate });
+
+      wrapper.find(Modal).simulate('primary');
+
+      expect(onGenerate).toHaveBeenCalled();
+    });
+
+    it('publishes onGenerate for user prompt', function () {
+      const onGenerate = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.UserGeneratePrompt, onGenerate });
+
+      wrapper.find(Modal).simulate('primary');
+
+      expect(onGenerate).toHaveBeenCalled();
+    });
+
+    it('publishes onClose (only valid when in system generated mode)', function () {
+      const onClose = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.SystemGeneratePrompt, onClose });
+
+      wrapper.find(Modal).simulate('secondary');
+
+      expect(onClose).toHaveBeenCalled();
+    });
   });
 
-  it('renders success message', function () {
-    const wrapper = subject({ successMessage: 'It worked!' });
+  describe(RestorePrompt, () => {
+    it('renders RestorePrompt when stage is SystemRestorePrompt', function () {
+      const wrapper = subject({ backupStage: BackupStage.SystemRestorePrompt });
 
-    expect(wrapper.find(Alert).prop('variant')).toEqual('success');
-    expect(wrapper.find(Alert).childAt(0).text()).toEqual('It worked!');
+      expect(wrapper.find(RestorePrompt)).toHaveProp('isSystemPrompt', true);
+    });
+
+    it('renders RestorePrompt when stage is UserRestoreBackup', function () {
+      const wrapper = subject({ backupStage: BackupStage.UserRestorePrompt });
+
+      expect(wrapper.find(RestorePrompt).prop('isSystemPrompt')).toBeFalsy();
+    });
+
+    it('publishes onVerifyKey (system)', function () {
+      const onVerifyKey = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.SystemRestorePrompt, onVerifyKey });
+
+      wrapper.find(Modal).simulate('primary');
+
+      expect(onVerifyKey).toHaveBeenCalled();
+    });
+
+    it('publishes onVerifyKey (user)', function () {
+      const onVerifyKey = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.UserRestorePrompt, onVerifyKey });
+
+      wrapper.find(Modal).simulate('primary');
+
+      expect(onVerifyKey).toHaveBeenCalled();
+    });
+
+    it('publishes onClose, (when backup stage is SystemPrompt)', function () {
+      const onClose = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.SystemRestorePrompt, onClose });
+
+      wrapper.find(Modal).simulate('secondary');
+
+      expect(onClose).toHaveBeenCalled();
+    });
   });
 
-  it('renders error message', function () {
-    const wrapper = subject({ errorMessage: 'It failed!' });
+  describe(RecoveredBackup, () => {
+    it('renders RecoveredBackup when stage is RecoveredBackupInfo', function () {
+      const wrapper = subject({ backupStage: BackupStage.RecoveredBackupInfo });
 
-    expect(wrapper.find(Alert).prop('variant')).toEqual('error');
-    expect(wrapper.find(Alert).childAt(0).text()).toEqual('It failed!');
+      expect(wrapper).toHaveElement(RecoveredBackup);
+    });
+
+    it('renders the buttons', function () {
+      const wrapper = subject({ backupStage: BackupStage.RecoveredBackupInfo });
+
+      expect(wrapper.find(Modal)).toHaveProp('primaryText', 'Dismiss');
+    });
+
+    it('publishes onClose', function () {
+      const onClose = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.RecoveredBackupInfo, onClose });
+
+      wrapper.find(Modal).simulate('close');
+
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe(GenerateBackup, () => {
+    it('renders GenerateBackup component when in GenerateBackup stage', function () {
+      const wrapper = subject({ backupStage: BackupStage.GenerateBackup });
+
+      expect(wrapper).toHaveElement(GenerateBackup);
+    });
+
+    it('disables button until key copied', function () {
+      const wrapper = subject({ backupStage: BackupStage.GenerateBackup });
+
+      expect(wrapper.find(Modal)).toHaveProp('primaryDisabled', true);
+
+      wrapper.find(GenerateBackup).simulate('keyCopied');
+
+      expect(wrapper.find(Modal)).toHaveProp('primaryDisabled', false);
+    });
+
+    it('publishes onVerifyKey', function () {
+      const onVerifyKey = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.GenerateBackup, onVerifyKey });
+
+      wrapper.find(Modal).simulate('primary');
+
+      expect(onVerifyKey).toHaveBeenCalled();
+    });
+  });
+
+  describe(RestoreBackup, () => {
+    it('renders RestoreBackup component when in RestoreBackup stage', function () {
+      const wrapper = subject({ backupStage: BackupStage.RestoreBackup });
+
+      expect(wrapper).toHaveElement(RestoreBackup);
+    });
+
+    it('publishes onRestore', function () {
+      const onRestore = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.RestoreBackup, onRestore });
+
+      wrapper.find(RestoreBackup).simulate('change', 'abcd 1234');
+      wrapper.find(Modal).simulate('primary');
+
+      expect(onRestore).toHaveBeenCalledWith('abcd 1234');
+    });
+
+    it('disables button if key text is empty and enables when text exists', function () {
+      const wrapper = subject({ backupStage: BackupStage.RestoreBackup });
+
+      expect(wrapper.find(Modal)).toHaveProp('primaryDisabled', true);
+
+      wrapper.find(RestoreBackup).simulate('change', 't');
+      expect(wrapper.find(Modal)).toHaveProp('primaryDisabled', false);
+
+      wrapper.find(RestoreBackup).simulate('change', '');
+      expect(wrapper.find(Modal)).toHaveProp('primaryDisabled', true);
+    });
+  });
+
+  describe(Success, () => {
+    it('renders Success component when in Success stage', function () {
+      const wrapper = subject({ backupStage: BackupStage.Success });
+      expect(wrapper).toHaveElement(Success);
+    });
+
+    it('renders the success buttons', function () {
+      const wrapper = subject({ backupStage: BackupStage.Success });
+
+      expect(wrapper.find(Modal)).toHaveProp('primaryText', 'Finish');
+    });
+
+    it('publishes onClose', function () {
+      const onClose = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.Success, onClose });
+
+      wrapper.find(Modal).simulate('primary');
+
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe(VerifyKeyPhrase, () => {
+    it('renders VerifyKeyPhrase component when in VerifyKeyPhrase stage', function () {
+      const wrapper = subject({ backupStage: BackupStage.VerifyKeyPhrase });
+      expect(wrapper).toHaveElement(VerifyKeyPhrase);
+    });
+
+    it('publishes onGenerate', function () {
+      const onGenerate = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.VerifyKeyPhrase, onGenerate });
+
+      wrapper.find(Modal).simulate('secondary');
+
+      expect(onGenerate).toHaveBeenCalled();
+    });
+
+    it('publishes onSave', function () {
+      const onSave = jest.fn();
+      const wrapper = subject({ backupStage: BackupStage.VerifyKeyPhrase, onSave });
+
+      wrapper.find(VerifyKeyPhrase).simulate('change', 'test-key-phrase');
+      wrapper.find(Modal).simulate('primary');
+
+      expect(onSave).toHaveBeenCalledWith('test-key-phrase');
+    });
+
+    it('disables button if key text is empty and enables when text exists', function () {
+      const wrapper = subject({ backupStage: BackupStage.VerifyKeyPhrase });
+
+      expect(wrapper.find(Modal)).toHaveProp('primaryDisabled', true);
+
+      wrapper.find(VerifyKeyPhrase).simulate('change', 't');
+      expect(wrapper.find(Modal)).toHaveProp('primaryDisabled', false);
+
+      wrapper.find(VerifyKeyPhrase).simulate('change', '');
+      expect(wrapper.find(Modal)).toHaveProp('primaryDisabled', true);
+    });
+  });
+
+  describe('header container', () => {
+    it('renders title as "Account Backup" if backup does not exist and backup is not restored', function () {
+      const wrapper = subject({ backupExists: false, backupRestored: false });
+
+      expect(wrapper.find(Modal)).toHaveProp('title', 'Account Backup');
+    });
+
+    it('renders title as "Verify Login" if backup exists and backup is not restored', function () {
+      const wrapper = subject({ backupExists: true, backupRestored: false });
+
+      expect(wrapper.find(Modal)).toHaveProp('title', 'Verify Login');
+    });
   });
 });
-
-function pressButton(wrapper, label: string) {
-  buttonLabelled(wrapper, label).simulate('press');
-}
-
-function changeRecoveryKeyInput(wrapper, value) {
-  wrapper.find(Input).simulate('change', value);
-}

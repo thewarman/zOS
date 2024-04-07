@@ -7,23 +7,25 @@ import { Avatar, DropdownMenu, Modal } from '@zero-tech/zui/components';
 import { bemClassName } from '../../lib/bem';
 
 import './styles.scss';
-import { SecureBackupContainer } from '../secure-backup/container';
-
-const cn = bemClassName('settings-menu');
+import { RewardsItemContainer } from './rewards-item/container';
+import { featureFlags } from '../../lib/feature-flags';
 
 export interface Properties {
   userName: string;
   userHandle: string;
   userAvatarUrl: string;
   userStatus: 'active' | 'offline';
+  hasUnviewedRewards: boolean;
 
+  onOpen: () => void;
   onLogout: () => void;
+  onSecureBackup: () => void;
+  onRewards: () => void;
 }
 
 interface State {
   isDropdownOpen: boolean;
   editProfileDialogOpen: boolean;
-  backupDialogOpen: boolean;
 }
 
 export class SettingsMenu extends React.Component<Properties, State> {
@@ -32,7 +34,6 @@ export class SettingsMenu extends React.Component<Properties, State> {
     this.state = {
       isDropdownOpen: false,
       editProfileDialogOpen: false,
-      backupDialogOpen: false,
     };
   }
 
@@ -42,6 +43,9 @@ export class SettingsMenu extends React.Component<Properties, State> {
 
   handleOpenChange = (isOpen) => {
     this.setState({ isDropdownOpen: isOpen });
+    if (isOpen) {
+      this.props.onOpen();
+    }
   };
 
   renderSettingsHeader() {
@@ -65,25 +69,10 @@ export class SettingsMenu extends React.Component<Properties, State> {
     this.setState({ editProfileDialogOpen: false });
   };
 
-  openBackupDialog = (): void => {
-    this.setState({ backupDialogOpen: true });
-  };
-  closeBackupDialog = (): void => {
-    this.setState({ backupDialogOpen: false });
-  };
-
   renderEditProfileDialog = (): JSX.Element => {
     return (
       <Modal open={this.state.editProfileDialogOpen} onOpenChange={this.closeEditProfileDialog}>
         <EditProfileContainer onClose={this.closeEditProfileDialog} />
-      </Modal>
-    );
-  };
-
-  renderBackupDialog = (): JSX.Element => {
-    return (
-      <Modal open={this.state.backupDialogOpen} onOpenChange={this.closeBackupDialog} {...cn('secure-backup-modal')}>
-        <SecureBackupContainer onClose={this.closeBackupDialog} />
       </Modal>
     );
   };
@@ -94,6 +83,22 @@ export class SettingsMenu extends React.Component<Properties, State> {
         {icon} {label}
       </div>
     );
+  }
+
+  get rewardsOption() {
+    if (featureFlags.enableRewards) {
+      return {
+        id: 'rewards',
+        label: <RewardsItemContainer />,
+        onSelect: this.props.onRewards,
+      };
+    }
+    return {
+      className: 'divider',
+      id: 'header-divider',
+      label: <div />,
+      onSelect: () => {},
+    };
   }
 
   get menuItems() {
@@ -109,8 +114,8 @@ export class SettingsMenu extends React.Component<Properties, State> {
     options.push({
       className: 'secure_backup',
       id: 'secure_backup',
-      label: this.renderSettingsOption(<IconLock1 />, 'Secure Backup'),
-      onSelect: this.openBackupDialog,
+      label: this.renderSettingsOption(<IconLock1 />, 'Account Backup'),
+      onSelect: this.props.onSecureBackup,
     });
 
     return [
@@ -119,12 +124,7 @@ export class SettingsMenu extends React.Component<Properties, State> {
         label: this.renderSettingsHeader(),
         onSelect: () => {},
       },
-      {
-        className: 'divider',
-        id: 'header-divider',
-        label: <div />,
-        onSelect: () => {},
-      },
+      this.rewardsOption,
       ...options,
       {
         className: 'divider',
@@ -141,6 +141,10 @@ export class SettingsMenu extends React.Component<Properties, State> {
     ];
   }
 
+  get shouldAvatarHaveHighlight() {
+    return this.props.hasUnviewedRewards || this.state.isDropdownOpen;
+  }
+
   render() {
     return (
       <>
@@ -152,7 +156,7 @@ export class SettingsMenu extends React.Component<Properties, State> {
           onOpenChange={this.handleOpenChange}
           trigger={
             <Avatar
-              isActive={this.state.isDropdownOpen}
+              isActive={this.shouldAvatarHaveHighlight}
               size={'medium'}
               type={'circle'}
               imageURL={this.props.userAvatarUrl}
@@ -162,7 +166,6 @@ export class SettingsMenu extends React.Component<Properties, State> {
           itemSize='spacious'
         />
         {this.renderEditProfileDialog()}
-        {this.renderBackupDialog()}
       </>
     );
   }

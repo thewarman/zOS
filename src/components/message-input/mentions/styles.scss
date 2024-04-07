@@ -1,0 +1,149 @@
+@use '~@zero-tech/zui/styles/theme' as theme;
+@use '../../../modules/animation' as animation;
+
+@import '../../../glass';
+
+@keyframes fade-background-in {
+  from {
+    background-color: rgba(0, 0, 0, 0);
+  }
+
+  to {
+    background-color: #c9fd51;
+  }
+}
+
+@mixin tag-highlight() {
+  mark,
+  strong {
+    background-color: theme.$color-primary-7 !important;
+    animation: fade-background-in 200ms ease-in forwards;
+    border-radius: 4px;
+  }
+
+  mark {
+    padding: 3px;
+    border-radius: 5px;
+  }
+}
+
+.mentions {
+  position: relative;
+  overflow-y: visible;
+
+  &__control {
+    font-size: 16px;
+    line-height: 23px;
+  }
+
+  &__highlighter {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    color: transparent;
+    overflow: hidden;
+    white-space: pre-wrap;
+    background: transparent;
+    overflow-wrap: break-word;
+    border: none !important;
+    text-align: start;
+
+    &__substring {
+      visibility: hidden;
+      overflow-wrap: break-word;
+      word-break: break-word;
+    }
+
+    @include tag-highlight;
+  }
+
+  textarea {
+    color: theme.$color-greyscale-12;
+    word-break: break-word;
+    outline: none;
+    border: none;
+  }
+
+  &__input {
+    display: block;
+    width: 100%;
+    position: absolute;
+    margin: 0px;
+    top: 0px;
+    left: 0px;
+    box-sizing: border-box;
+    background-color: transparent;
+    font-family: inherit;
+    font-size: inherit;
+    letter-spacing: inherit;
+    height: 100%;
+    bottom: 0px;
+    overflow: hidden;
+    resize: none;
+    border: none;
+    padding: 0px;
+  }
+
+  &__suggestions-user-details {
+    overflow: hidden;
+  }
+
+  &__suggestions-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 14px;
+    line-height: 20px;
+
+    @include glass-text-primary-color;
+  }
+
+  &__suggestions-handle {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 10px;
+    line-height: 13px;
+
+    @include glass-text-tertiary-color;
+  }
+
+  &__suggestions {
+    @include glass-shadow-and-blur;
+
+    z-index: 1000 !important;
+    background-color: rgb(10, 10, 10, 0.75) !important;
+    animation: fadein animation.$animation-duration-double ease-in-out;
+    border-radius: 8px;
+    padding: 2px;
+
+    &__list {
+      display: flex;
+      flex-direction: column;
+
+      gap: 4px;
+      padding: 6px !important;
+      max-height: 262px;
+      min-width: 128px;
+      max-width: 256px;
+      overflow-y: auto;
+    }
+
+    &__item {
+      display: flex;
+      padding: 8px;
+      align-items: center;
+      gap: 8px;
+      height: 24px;
+      border-radius: 8px;
+
+      &--focused {
+        @include glass-state-hover-color;
+      }
+
+      &:hover {
+        @include glass-state-hover-color;
+      }
+    }
+  }
+}

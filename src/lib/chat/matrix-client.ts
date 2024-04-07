@@ -20,7 +20,7 @@ import {
 } from 'matrix-js-sdk';
 import { RealtimeChatEvents, IChatClient } from './';
 import { mapEventToAdminMessage, mapMatrixMessage, mapToLiveRoomEvent } from './matrix/chat-message';
-import { ConversationStatus, GroupChannelType, Channel, User as UserModel } from '../../store/channels';
+import { ConversationStatus, Channel, User as UserModel } from '../../store/channels';
 import { EditMessageOptions, Message, MessagesResponse } from '../../store/messages';
 import { FileUploadResult } from '../../store/messages/saga';
 import { ParentMessage, PowerLevels, User } from './types';
@@ -35,7 +35,7 @@ import {
   MatrixConstants,
   MembershipStateType,
 } from './matrix/types';
-import { getFilteredMembersForAutoComplete, setAsDM } from './matrix/utils';
+import { constructFallbackForParentMessage, getFilteredMembersForAutoComplete, setAsDM } from './matrix/utils';
 import { uploadImage } from '../../store/channels-list/api';
 import { SessionStorage } from './session-storage';
 import { encryptFile } from './matrix/media';
@@ -54,6 +54,7 @@ export class MatrixClient implements IChatClient {
   private connectionResolver: () => void;
   private connectionAwaiter: Promise<void>;
   private unreadNotificationHandlers = [];
+  private roomTagHandlers = [];
   private initializationTimestamp: number;
   private secretStorageKey: string;
 
@@ -165,7 +166,7 @@ export class MatrixClient implements IChatClient {
   }
 
   async getSecureBackup() {
-    const crossSigning = await this.matrix.getStoredCrossSigningForUser(this.userId);
+    const crossSigning = await this.doesUserHaveCrossSigning();
     const backupInfo = await this.matrix.checkKeyBackup();
     (backupInfo as any).isLegacy = !crossSigning;
     return backupInfo;
@@ -200,7 +201,7 @@ export class MatrixClient implements IChatClient {
       throw new Error('Backup broken or not there');
     }
 
-    const crossSigning = await this.matrix.getStoredCrossSigningForUser(this.userId);
+    const crossSigning = await this.doesUserHaveCrossSigning();
     if (crossSigning) {
       await this.restoreSecretStorageBackup(recoveryKey, backup);
     } else {
@@ -348,6 +349,7 @@ export class MatrixClient implements IChatClient {
       ...message,
       content: { ...message.content, body: newContent.body },
       updatedAt: timestamp,
+      isHidden: false,
     };
   }
 
@@ -355,8 +357,9 @@ export class MatrixClient implements IChatClient {
     return {
       ...message,
       content: { ...message.content },
-      message: 'Message edit cannot be decrypted.',
+      message: 'Message hidden',
       updatedAt: timestamp,
+      isHidden: true,
     };
   }
 
@@ -448,6 +451,10 @@ export class MatrixClient implements IChatClient {
     };
 
     if (parentMessage) {
+      const fallback = constructFallbackForParentMessage(parentMessage);
+
+      content.body = `${fallback}\n\n${message}`;
+
       content['m.relates_to'] = {
         'm.in_reply_to': {
           event_id: parentMessage.messageId,
@@ -647,6 +654,25 @@ export class MatrixClient implements IChatClient {
     return await Promise.all(matches.map((r) => this.mapConversation(r)));
   }
 
+  async addRoomToFavorites(roomId: string): Promise<void> {
+    await this.waitForConnection();
+
+    await this.matrix.setRoomTag(roomId, MatrixConstants.FAVORITE);
+  }
+
+  async removeRoomFromFavorites(roomId: string): Promise<void> {
+    await this.waitForConnection();
+
+    await this.matrix.deleteRoomTag(roomId, MatrixConstants.FAVORITE);
+  }
+
+  async isRoomFavorited(roomId: string): Promise<boolean> {
+    await this.waitForConnection();
+
+    const result = await this.matrix.getRoomTags(roomId);
+    return !!result.tags?.[MatrixConstants.FAVORITE];
+  }
+
   arraysMatch(a, b) {
     if (a.length !== b.length) {
       return false;
@@ -706,6 +732,9 @@ export class MatrixClient implements IChatClient {
     this.unreadNotificationHandlers[room.roomId] = (unreadNotification) =>
       this.handleUnreadNotifications(room.roomId, unreadNotification);
     room.on(RoomEvent.UnreadNotifications, this.unreadNotificationHandlers[room.roomId]);
+
+    this.roomTagHandlers[room.roomId] = (event) => this.publishRoomTagChange(event, room.roomId);
+    room.on(RoomEvent.Tags, this.roomTagHandlers[room.roomId]);
   }
 
   private handleUnreadNotifications = (roomId, unreadNotifications) => {
@@ -719,8 +748,6 @@ export class MatrixClient implements IChatClient {
       this.debug('event: ', event);
       if (event.type === EventType.RoomEncryption) {
         this.debug('encryped message: ', event);
-      }
-      if (event.type === EventType.RoomCreate) {
       }
       if (event.type === EventType.RoomMember) {
         await this.publishMembershipChange(event);
@@ -910,6 +937,16 @@ export class MatrixClient implements IChatClient {
     }
   };
 
+  private publishRoomTagChange(event, roomId) {
+    const isFavoriteTagAdded = !!event.getContent().tags?.[MatrixConstants.FAVORITE];
+
+    if (isFavoriteTagAdded) {
+      this.events.roomFavorited(roomId);
+    } else {
+      this.events.roomUnfavorited(roomId);
+    }
+  }
+
   private mapConversation = async (room: Room): Promise<Partial<Channel>> => {
     const otherMembers = this.getOtherMembersFromRoom(room).map((userId) => this.mapUser(userId));
     const memberHistory = this.getMemberHistoryFromRoom(room).map((userId) => this.mapUser(userId));
@@ -918,12 +955,12 @@ export class MatrixClient implements IChatClient {
     const createdAt = this.getRoomCreatedAt(room);
     const messages = await this.getAllMessagesFromRoom(room);
     const unreadCount = room.getUnreadNotificationCount(NotificationCountType.Total);
+    const isFavorite = await this.isRoomFavorited(room.roomId);
 
     return {
       id: room.roomId,
       name,
       icon: avatarUrl,
-      isChannel: false,
       // Even if a member leaves they stay in the member list so this will still be correct
       // as zOS considers any conversation to have ever had more than 2 people to not be 1 on 1
       isOneOnOne: room.getMembers().length === 2,
@@ -931,13 +968,11 @@ export class MatrixClient implements IChatClient {
       memberHistory: memberHistory,
       lastMessage: null,
       messages,
-      groupChannelType: GroupChannelType.Private,
-      category: '',
       unreadCount,
-      hasJoined: true,
       createdAt,
       conversationStatus: ConversationStatus.CREATED,
       adminMatrixIds: this.getRoomAdmins(room),
+      isFavorite,
     };
   };
 
@@ -1025,6 +1060,10 @@ export class MatrixClient implements IChatClient {
     const key = this.matrix.keyBackupKeyFromRecoveryKey(this.secretStorageKey);
     return [keyId, key];
   };
+
+  private async doesUserHaveCrossSigning() {
+    return await this.matrix.getCrypto()?.userHasCrossSigningKeys(this.userId, true);
+  }
 
   /*
    * DEBUGGING

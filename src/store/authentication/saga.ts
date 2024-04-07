@@ -1,6 +1,6 @@
 import getDeepProperty from 'lodash.get';
 import { takeLatest, put, call, all } from 'redux-saga/effects';
-import { SagaActionTypes, setUser } from '.';
+import { SagaActionTypes, setDisplayLogoutModal, setUser } from '.';
 import {
   nonceOrAuthorize as nonceOrAuthorizeApi,
   fetchCurrentUser,
@@ -9,8 +9,6 @@ import {
   emailLogin as apiEmailLogin,
 } from './api';
 import { setChatAccessToken } from '../chat';
-import { User } from './types';
-import { clearUserLayout, initializeUserLayout } from '../layout/saga';
 import { clearChannelsAndConversations } from '../channels-list/saga';
 import { clearUsers } from '../users/saga';
 import { clearMessages } from '../messages/saga';
@@ -52,7 +50,6 @@ export function* completeUserLogin(user = null) {
   }
 
   yield put(setUser({ data: user }));
-  yield call(initializeUserState, user);
   yield call(publishUserLogin, user);
 }
 
@@ -97,26 +94,31 @@ export function* authenticateByEmail(email, password) {
   return result;
 }
 
-export function* initializeUserState(user: User) {
-  // Note: This should probably all live in the appropriate areas and listen to the logout event
-  yield initializeUserLayout(user);
-}
-
 export function* clearUserState() {
   // Note: This should probably all live in the appropriate areas and listen to the logout event
   yield all([
     call(clearChannelsAndConversations),
     call(clearMessages),
     call(clearUsers),
-    call(clearUserLayout),
   ]);
 }
 
 export function* saga() {
-  yield takeLatest(SagaActionTypes.Logout, logout);
+  yield takeLatest(SagaActionTypes.Logout, logoutRequest);
+  yield takeLatest(SagaActionTypes.ForceLogout, forceLogout);
+  yield takeLatest(SagaActionTypes.CloseLogoutModal, closeLogoutModal);
 }
 
-export function* logout() {
+export function* logoutRequest() {
+  yield put(setDisplayLogoutModal(true));
+}
+
+export function* closeLogoutModal() {
+  yield put(setDisplayLogoutModal(false));
+}
+
+export function* forceLogout() {
+  yield closeLogoutModal();
   yield call(updateConnector, { payload: Connectors.None });
   yield call(terminate);
 }

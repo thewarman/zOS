@@ -3,6 +3,7 @@ import { shallow } from 'enzyme';
 
 import { ConversationListPanel, Properties } from '.';
 import { Channel } from '../../../../store/channels';
+import { stubConversation } from '../../../../store/test/store';
 
 describe('ConversationListPanel', () => {
   const subject = (props: Partial<Properties>) => {
@@ -13,6 +14,8 @@ describe('ConversationListPanel', () => {
       search: () => undefined,
       onConversationClick: () => null,
       onCreateConversation: () => null,
+      onFavoriteRoom: () => null,
+      onUnfavoriteRoom: () => null,
       ...props,
     };
 
@@ -59,6 +62,57 @@ describe('ConversationListPanel', () => {
       'convo-1',
       'convo-3',
     ]);
+  });
+
+  it('renders conversations based on selected tab', function () {
+    const conversations = [
+      stubConversation({ name: 'convo-1' }),
+      stubConversation({ name: 'convo-2', isFavorite: true }),
+      stubConversation({ name: 'convo-3', isFavorite: true }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    selectTab(wrapper, 'Favorites');
+    expect(renderedConversationNames(wrapper)).toStrictEqual(['convo-2', 'convo-3']);
+
+    selectTab(wrapper, 'All');
+    expect(renderedConversationNames(wrapper)).toStrictEqual(['convo-1', 'convo-2', 'convo-3']);
+  });
+
+  it('renders default state when favorites is empty', function () {
+    const conversations = [stubConversation({ name: 'convo-1' })];
+    const wrapper = subject({ conversations: conversations as any });
+
+    selectTab(wrapper, 'Favorites');
+
+    expect(wrapper).toHaveElement('.messages-list__favorites-preview');
+  });
+
+  it('renders tab unread counts', function () {
+    const conversations = [
+      stubConversation({ name: 'convo-1', unreadCount: 3 }),
+      stubConversation({ name: 'convo-2', unreadCount: 11, isFavorite: true }),
+      stubConversation({ name: 'convo-3', unreadCount: 17, isFavorite: true }),
+      stubConversation({ name: 'convo-4', unreadCount: 7 }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    const allTab = tabNamed(wrapper, 'All');
+    expect(allTab.find('.messages-list__tab-badge')).toHaveText('38');
+
+    const favoritesTab = tabNamed(wrapper, 'Favorites');
+    expect(favoritesTab.find('.messages-list__tab-badge')).toHaveText('28');
+  });
+
+  it('does not render unread count if count is zero', function () {
+    const conversations = [
+      stubConversation({ name: 'convo-1', unreadCount: 0 }),
+      stubConversation({ name: 'convo-2', unreadCount: 0, isFavorite: true }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    expect(tabNamed(wrapper, 'All')).not.toHaveElement('.messages-list__tab-badge');
+    expect(tabNamed(wrapper, 'Favorites')).not.toHaveElement('.messages-list__tab-badge');
   });
 
   it('renders conversation group names as well in the filtered conversation list', function () {
@@ -303,6 +357,14 @@ describe('ConversationListPanel', () => {
   });
 });
 
+function tabNamed(wrapper, tabName: string) {
+  return wrapper.find('.messages-list__tab').filterWhere((n) => n.childAt(0).text().trim() === tabName);
+}
+
+function selectTab(wrapper, tabName: string) {
+  tabNamed(wrapper, tabName).simulate('click');
+}
+
 function renderedUserSearchResults(wrapper) {
   return wrapper.find('UserSearchResults').prop('results');
 }
@@ -315,4 +377,8 @@ async function searchFor(wrapper, searchString) {
 
 function renderedConversations(wrapper) {
   return wrapper.find('ConversationItem').map((node) => node.prop('conversation')) as Channel[];
+}
+
+function renderedConversationNames(wrapper) {
+  return renderedConversations(wrapper).map((c) => c.name);
 }

@@ -1,16 +1,10 @@
 import { shallow } from 'enzyme';
 import { Properties, UserHeader } from '.';
-import { SettingsMenu } from '../../../settings-menu';
 import { Button, IconButton } from '@zero-tech/zui/components';
 
 import { bem } from '../../../../lib/bem';
-
+import { RewardsToolTipContainer } from '../rewards-tooltip/container';
 const c = bem('.user-header');
-
-const featureFlags = { allowVerifyId: false };
-jest.mock('../../../../lib/feature-flags', () => ({
-  featureFlags: featureFlags,
-}));
 
 describe(UserHeader, () => {
   const subject = (props: Partial<Properties> = {}) => {
@@ -19,7 +13,7 @@ describe(UserHeader, () => {
       userHandle: '',
       userAvatarUrl: '',
       userIsOnline: true,
-      includeUserSettings: false,
+      showRewardsTooltip: false,
 
       onLogout: () => null,
       onVerifyId: () => null,
@@ -29,16 +23,6 @@ describe(UserHeader, () => {
 
     return shallow(<UserHeader {...allProps} />);
   };
-
-  it('renders SettingsMenu when includeUserSettings is true', function () {
-    const wrapper = subject({ includeUserSettings: true });
-    expect(wrapper).toHaveElement(SettingsMenu);
-  });
-
-  it('does not render SettingsMenu when includeUserSettings is false', function () {
-    const wrapper = subject({ includeUserSettings: false });
-    expect(wrapper).not.toHaveElement(SettingsMenu);
-  });
 
   it('renders userHandle when user handle is not empty', function () {
     const wrapper = subject({ userHandle: '0://zid.example' });
@@ -64,25 +48,25 @@ describe(UserHeader, () => {
   });
 
   it('renders verify id button when user handle is a wallet address', function () {
-    featureFlags.allowVerifyId = true;
-
     const wrapper = subject({ userHandle: '0x1234567890abcdef' });
     expect(wrapper).toHaveElement(Button);
   });
 
   it('does not verify id button when user handle is not a wallet address', function () {
-    featureFlags.allowVerifyId = true;
-
     const wrapper = subject({ userHandle: 'user123' });
     expect(wrapper).not.toHaveElement(Button);
   });
 
   it('onVerifyId', function () {
-    featureFlags.allowVerifyId = true;
     const onVerifyIdMock = jest.fn();
 
     subject({ userHandle: '0x1234567890abcdef', onVerifyId: onVerifyIdMock }).find(Button).simulate('press');
 
     expect(onVerifyIdMock).toHaveBeenCalled();
+  });
+
+  it('renders rewards tooltip when showRewardsTooltip is true', function () {
+    const wrapper = subject({ showRewardsTooltip: true });
+    expect(wrapper).toHaveElement(RewardsToolTipContainer);
   });
 });

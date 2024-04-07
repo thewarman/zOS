@@ -1,0 +1,6 @@
+@use '~@zero-tech/zui/styles/theme' as theme;
+
+.menu-item {
+  display: flex;
+  gap: 8px;
+}

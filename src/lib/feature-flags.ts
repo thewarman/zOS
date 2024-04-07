@@ -43,11 +43,19 @@ export class FeatureFlags {
   }
 
   get enableRewards() {
-    return this._getBoolean('enableRewards');
+    return this._getBoolean('enableRewards', false);
   }
 
   set enableRewards(value: boolean) {
     this._setBoolean('enableRewards', value);
+  }
+
+  get enableFavorites() {
+    return this._getBoolean('enableFavorites', true);
+  }
+
+  set enableFavorites(value: boolean) {
+    this._setBoolean('enableFavorites', value);
   }
 
   get enableMatrix() {
@@ -80,14 +88,6 @@ export class FeatureFlags {
 
   set internalUsage(value: boolean) {
     this._setBoolean('internalUsage', value);
-  }
-
-  get allowVerifyId() {
-    return this._getBoolean('allowVerifyId', true);
-  }
-
-  set allowVerifyId(value: boolean) {
-    this._setBoolean('allowVerifyId', value);
   }
 
   get allowEditPrimaryZID() {

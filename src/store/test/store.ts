@@ -5,6 +5,13 @@ import { normalize as normalizeUser } from '../users';
 import { User as AuthenticatedUser } from '../authentication/types';
 import { initialState as initialGroupManagementState } from '../group-management';
 import { ChatState } from '../chat/types';
+import { initialState as authenticationInitialState } from '../authentication';
+import { MatrixState, initialState as initialMatrixState } from '../matrix';
+import { initialState as initialLoginState } from '../login';
+
+type RecursivePartial<T> = {
+  [P in keyof T]?: RecursivePartial<T[P]>;
+};
 
 export class StoreBuilder {
   channelList: Partial<Channel>[] = [];
@@ -12,12 +19,12 @@ export class StoreBuilder {
   users: Partial<{ userId: string }>[] = [];
 
   activeConversation: Partial<Channel> = {};
-  isFullScreenMessenger: boolean = true;
   currentUser: Partial<AuthenticatedUser> = stubAuthenticatedUser();
   groupManagement: Partial<RootState['groupManagement']> = initialGroupManagementState;
   otherState: any = {};
   chatState: Partial<ChatState> = {};
   activeConversationId: string = '';
+  matrix: MatrixState = { ...initialMatrixState };
 
   withActiveConversation(conversation: Partial<Channel>) {
     this.activeConversation = conversation;
@@ -29,13 +36,8 @@ export class StoreBuilder {
     return this;
   }
 
-  withChannelList(...args: Partial<Channel>[]) {
-    this.channelList.push(...args.map((c) => ({ isChannel: true, ...c })));
-    return this;
-  }
-
   withConversationList(...args: Partial<Channel>[]) {
-    this.conversationList.push(...args.map((c) => ({ isChannel: false, ...c })));
+    this.conversationList.push(...args);
     return this;
   }
 
@@ -55,28 +57,36 @@ export class StoreBuilder {
     return this.withCurrentUser({ id });
   }
 
-  inFullScreenMessenger() {
-    this.isFullScreenMessenger = true;
-    return this;
-  }
-
-  inWindowedMode() {
-    this.isFullScreenMessenger = false;
-    return this;
-  }
-
   withChat(chatState: Partial<ChatState>) {
     this.chatState = chatState;
     return this;
   }
 
-  withOtherState(data: any) {
+  withOtherState(data: RecursivePartial<RootState>) {
     this.otherState = data;
     return this;
   }
 
   managingGroup(data: Partial<RootState['groupManagement']>) {
     this.groupManagement = data;
+    return this;
+  }
+
+  withoutBackup() {
+    this.matrix.backupExists = false;
+    this.matrix.backupRestored = false;
+    return this;
+  }
+
+  withUnrestoredBackup() {
+    this.matrix.backupExists = true;
+    this.matrix.backupRestored = false;
+    return this;
+  }
+
+  withRestoredBackup() {
+    this.matrix.backupExists = true;
+    this.matrix.backupRestored = true;
     return this;
   }
 
@@ -94,6 +104,7 @@ export class StoreBuilder {
     } = normalizeUser(this.users);
 
     return {
+      login: initialLoginState,
       channelsList: { value: channelsList },
       normalized: {
         ...channelEntitities,
@@ -106,22 +117,21 @@ export class StoreBuilder {
         ...this.chatState,
         activeConversationId: this.activeConversation.id || this.activeConversationId || null,
       },
-      layout: {
-        value: {
-          isMessengerFullScreen: this.isFullScreenMessenger,
-        },
-      },
       authentication: {
+        ...authenticationInitialState,
         user: { data: this.currentUser },
       },
       groupManagement: this.groupManagement,
+      matrix: {
+        ...this.matrix,
+      },
       ...this.otherState,
     } as RootState;
   }
 }
 
 let stubCount = 0;
-function stubAuthenticatedUser(attrs: Partial<AuthenticatedUser> = {}): Partial<AuthenticatedUser> {
+export function stubAuthenticatedUser(attrs: Partial<AuthenticatedUser> = {}): Partial<AuthenticatedUser> {
   stubCount++;
   return {
     id: `default-stub-user-id-${stubCount}`,
@@ -136,7 +146,7 @@ function stubAuthenticatedUser(attrs: Partial<AuthenticatedUser> = {}): Partial<
   };
 }
 
-function stubUser(attrs: Partial<User> = {}): Partial<User> {
+export function stubUser(attrs: Partial<User> = {}): User {
   stubCount++;
   return {
     userId: `default-stub-user-id-${stubCount}`,
@@ -145,6 +155,21 @@ function stubUser(attrs: Partial<User> = {}): Partial<User> {
     firstName: 'DefaultStubFirstName',
     lastName: 'DefaultStubLastName',
     profileImage: '/default-stub-image.jpg',
+    lastSeenAt: 'default-stub-last-seen',
+    primaryZID: 'DefaultStubPrimaryZID',
+    displaySubHandle: 'DefaultStubDisplaySubHandle',
+    isOnline: false,
+    primaryWallet: null,
+    wallets: [],
+    ...attrs,
+  };
+}
+
+export function stubConversation(attrs: Partial<Channel> = {}): Partial<Channel> {
+  stubCount++;
+  return {
+    id: `conversation-id-${stubCount}`,
+    otherMembers: [],
     ...attrs,
   };
 }

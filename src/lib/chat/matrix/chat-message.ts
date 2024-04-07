@@ -1,7 +1,8 @@
-import { CustomEventType, MembershipStateType, NotifiableEventType } from './types';
+import { CustomEventType, MatrixConstants, MembershipStateType, NotifiableEventType } from './types';
 import { EventType, MsgType, MatrixClient as SDKMatrixClient } from 'matrix-js-sdk';
 import { decryptFile } from './media';
 import { AdminMessageType, Message, MessageSendStatus } from '../../../store/messages';
+import { parsePlainBody } from './utils';
 
 async function parseMediaData(matrixMessage) {
   const { content } = matrixMessage;
@@ -35,9 +36,14 @@ export async function mapMatrixMessage(matrixMessage, sdkMatrixClient: SDKMatrix
   const parent = matrixMessage.content['m.relates_to'];
   const senderData = sdkMatrixClient.getUser(senderId);
 
+  let messageContent = content.body;
+  if (parent && parent['m.in_reply_to']) {
+    messageContent = parsePlainBody(content.body);
+  }
+
   return {
     id: event_id,
-    message: content.body,
+    message: messageContent,
     createdAt: origin_server_ts,
     updatedAt: updatedAt,
     sender: {
@@ -58,6 +64,7 @@ export async function mapMatrixMessage(matrixMessage, sdkMatrixClient: SDKMatrix
     },
     parentMessageText: '',
     parentMessageId: parent ? parent['m.in_reply_to']?.event_id : null,
+    isHidden: content?.msgtype === MatrixConstants.BAD_ENCRYPTED_MSGTYPE,
     ...(await parseMediaData(matrixMessage)),
   };
 }

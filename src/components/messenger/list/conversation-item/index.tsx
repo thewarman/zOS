@@ -5,6 +5,7 @@ import { isCustomIcon, lastSeenText } from '../utils/utils';
 import { highlightFilter } from '../../lib/utils';
 import { Channel } from '../../../../store/channels';
 
+import { MoreMenu } from './more-menu';
 import Tooltip from '../../../tooltip';
 import { Avatar, Status } from '@zero-tech/zui/components';
 import { IconUsers1 } from '@zero-tech/zui/icons';
@@ -15,6 +16,8 @@ import { bemClassName } from '../../../../lib/bem';
 import './conversation-item.scss';
 import '../styles.scss';
 
+import { FeatureFlag } from '../../../feature-flag';
+
 const cn = bemClassName('conversation-item');
 
 export interface Properties {
@@ -24,9 +27,19 @@ export interface Properties {
   activeConversationId: string;
 
   onClick: (conversationId: string) => void;
+  onFavoriteRoom: (roomId: string) => void;
+  onUnfavoriteRoom: (roomId: string) => void;
 }
 
-export class ConversationItem extends React.Component<Properties> {
+export interface State {
+  isContextMenuOpen: boolean;
+}
+
+export class ConversationItem extends React.Component<Properties, State> {
+  state = {
+    isContextMenuOpen: false,
+  };
+
   handleMemberClick = () => {
     this.props.onClick(this.props.conversation.id);
   };
@@ -35,6 +48,23 @@ export class ConversationItem extends React.Component<Properties> {
     if (event.key === 'Enter') {
       this.props.onClick(this.props.conversation.id);
     }
+  };
+
+  onFavorite = () => {
+    this.props.onFavoriteRoom(this.props.conversation.id);
+  };
+
+  onUnfavorite = () => {
+    this.props.onUnfavoriteRoom(this.props.conversation.id);
+  };
+
+  openContextMenu = (e) => {
+    e.preventDefault();
+    this.setState({ isContextMenuOpen: true });
+  };
+
+  closeContextMenu = () => {
+    this.setState({ isContextMenuOpen: false });
   };
 
   tooltipContent(conversation: Channel) {
@@ -84,6 +114,24 @@ export class ConversationItem extends React.Component<Properties> {
     );
   }
 
+  renderMoreMenu() {
+    const stopPropagation = (e) => {
+      e.stopPropagation();
+    };
+
+    return (
+      <div onClick={stopPropagation}>
+        <MoreMenu
+          isFavorite={this.props.conversation.isFavorite}
+          onFavorite={this.onFavorite}
+          onUnfavorite={this.onUnfavorite}
+          isOpen={this.state.isContextMenuOpen}
+          onClose={this.closeContextMenu}
+        />
+      </div>
+    );
+  }
+
   render() {
     const { conversation, activeConversationId } = this.props;
     const { messagePreview, previewDisplayDate } = conversation;
@@ -109,8 +157,13 @@ export class ConversationItem extends React.Component<Properties> {
           tabIndex={0}
           role='button'
           is-active={isActive}
+          onContextMenu={this.openContextMenu}
         >
-          {this.renderAvatar()}
+          <div {...cn('avatar-with-menu-container')}>
+            {this.renderAvatar()}
+            <FeatureFlag featureFlag='enableFavorites'>{this.renderMoreMenu()}</FeatureFlag>
+          </div>
+
           <div {...cn('summary')}>
             <div {...cn('header')}>
               <div {...cn('name')} is-unread={isUnread}>

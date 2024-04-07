@@ -14,6 +14,7 @@ import { getDirectMatches, getIndirectMatches } from './utils';
 
 import { bemClassName } from '../../../../lib/bem';
 import './conversation-list-panel.scss';
+import { FeatureFlag } from '../../../feature-flag';
 
 const cn = bemClassName('messages-list');
 
@@ -25,17 +26,25 @@ export interface Properties {
   search: (input: string) => any;
   onCreateConversation: (userId: string) => void;
   onConversationClick: (payload: { conversationId: string }) => void;
+  onFavoriteRoom: (payload: { roomId: string }) => void;
+  onUnfavoriteRoom: (payload: { roomId: string }) => void;
+}
+
+enum Tab {
+  All = 'all',
+  Favorites = 'favorites',
 }
 
 interface State {
   filter: string;
   inviteDialogOpen: boolean;
   userSearchResults: Option[];
+  selectedTab: Tab;
 }
 
 export class ConversationListPanel extends React.Component<Properties, State> {
   scrollContainerRef: React.RefObject<ScrollbarContainer>;
-  state = { filter: '', inviteDialogOpen: false, userSearchResults: [] };
+  state = { filter: '', inviteDialogOpen: false, userSearchResults: [], selectedTab: Tab.All };
 
   constructor(props) {
     super(props);
@@ -70,7 +79,11 @@ export class ConversationListPanel extends React.Component<Properties, State> {
 
   get filteredConversations() {
     if (!this.state.filter) {
-      return this.props.conversations;
+      if (this.state.selectedTab === Tab.All) {
+        return this.props.conversations;
+      } else {
+        return this.favoriteConversations;
+      }
     }
 
     const searchRegEx = new RegExp(escapeRegExp(this.state.filter), 'i');
@@ -106,6 +119,48 @@ export class ConversationListPanel extends React.Component<Properties, State> {
     this.setState({ filter: '' });
   };
 
+  selectAll = () => {
+    this.setState({ selectedTab: Tab.All });
+  };
+
+  selectFavorites = () => {
+    this.setState({ selectedTab: Tab.Favorites });
+  };
+
+  onFavoriteRoom = (roomId: string) => {
+    this.props.onFavoriteRoom({ roomId });
+  };
+
+  onUnfavoriteRoom = (roomId: string) => {
+    this.props.onUnfavoriteRoom({ roomId });
+  };
+
+  get favoriteConversations() {
+    return this.props.conversations.filter((c) => c.isFavorite);
+  }
+
+  get allUnreadCount() {
+    const count = this.props.conversations.reduce((acc, c) => acc + c.unreadCount, 0);
+    return count < 99 ? count : '99+';
+  }
+
+  get favoritesUnreadCount() {
+    const count = this.favoriteConversations.reduce((acc, c) => acc + c.unreadCount, 0);
+    return count < 99 ? count : '99+';
+  }
+
+  renderEmptyConversationList = () => {
+    if (this.state.selectedTab === Tab.Favorites) {
+      return (
+        <div {...cn('favorites-preview')}>
+          <span>Right click a conversation to add it to your favorites.</span>
+          <div {...cn('favorites-preview-image')}></div>
+        </div>
+      );
+    }
+    return null;
+  };
+
   render() {
     return (
       <>
@@ -120,18 +175,43 @@ export class ConversationListPanel extends React.Component<Properties, State> {
             />
           </div>
 
+          <FeatureFlag featureFlag='enableFavorites'>
+            <div {...cn('tab-list')}>
+              <div {...cn('tab', this.state.selectedTab === Tab.All && 'active')} onClick={this.selectAll}>
+                All
+                {!!this.allUnreadCount && (
+                  <div {...cn('tab-badge')}>
+                    <span>{this.allUnreadCount}</span>
+                  </div>
+                )}
+              </div>
+              <div {...cn('tab', this.state.selectedTab === Tab.Favorites && 'active')} onClick={this.selectFavorites}>
+                Favorites
+                {!!this.favoritesUnreadCount && (
+                  <div {...cn('tab-badge')}>
+                    <span>{this.favoritesUnreadCount}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </FeatureFlag>
+
           <ScrollbarContainer variant='on-hover' ref={this.scrollContainerRef}>
             <div {...cn('item-list')}>
-              {this.filteredConversations.map((c) => (
-                <ConversationItem
-                  key={c.id}
-                  conversation={c}
-                  filter={this.state.filter}
-                  onClick={this.openExistingConversation}
-                  myUserId={this.props.myUserId}
-                  activeConversationId={this.props.activeConversationId}
-                />
-              ))}
+              {this.filteredConversations.length > 0 &&
+                this.filteredConversations.map((c) => (
+                  <ConversationItem
+                    key={c.id}
+                    conversation={c}
+                    filter={this.state.filter}
+                    onClick={this.openExistingConversation}
+                    myUserId={this.props.myUserId}
+                    activeConversationId={this.props.activeConversationId}
+                    onFavoriteRoom={this.onFavoriteRoom}
+                    onUnfavoriteRoom={this.onUnfavoriteRoom}
+                  />
+                ))}
+              {this.filteredConversations.length === 0 && !this.state.filter && this.renderEmptyConversationList()}
 
               {this.filteredConversations?.length === 0 &&
                 this.state.userSearchResults?.length === 0 &&
