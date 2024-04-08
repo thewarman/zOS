@@ -5,6 +5,8 @@ on:
       - 'electron/**'
 permissions:
   contents: write
+  packages: read
+  id-token: read
 jobs:
   build:
     environment: 'development'
