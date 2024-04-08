@@ -10,6 +10,13 @@ declare const APP_WINDOW_WEBPACK_ENTRY: string;
 declare const APP_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 declare const SPLASH_WINDOW_WEBPACK_ENTRY: string;
 
+// URLs from remote app loading
+declare const REMOTE_PROD_URL: string;
+declare const REMOTE_STAGING_URL: string;
+
+// Determine if we are running in development mode
+const isDev = process.argv.includes('--dev');
+
 let mainIsReadyResolver: () => void;
 const mainIsReadyPromise = new Promise<void>((resolve) => (mainIsReadyResolver = resolve));
 
@@ -43,13 +50,20 @@ export function createMainWindow(): Electron.BrowserWindow {
   mainWindow = new BrowserWindow(getMainWindowOptions());
 
   // and load the index.html of the app.
-  mainWindow.loadURL(APP_WINDOW_WEBPACK_ENTRY);
+  if (isDev) {
+    mainWindow.loadURL(APP_WINDOW_WEBPACK_ENTRY);
+  } else if (process.argv.includes('--staging')) {
+    mainWindow.loadURL(REMOTE_STAGING_URL);
+  } else {
+    mainWindow.loadURL(REMOTE_PROD_URL);
+  }
 
   // Wait for the content to be fully loaded
   mainWindow.webContents.once('dom-ready', () => {
     if (splashScreen) {
       splashScreen.close();
     }
+    mainWindow?.maximize();
     mainWindow?.show();
   });
 
@@ -62,7 +76,9 @@ export function createMainWindow(): Electron.BrowserWindow {
   });
 
   // Open the DevTools.
-  // mainWindow.webContents.openDevTools();
+  if (isDev) {
+    mainWindow.webContents.openDevTools();
+  }
 
   // Open external URLs in the default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

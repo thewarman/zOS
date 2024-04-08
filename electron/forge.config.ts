@@ -40,7 +40,7 @@ const config: ForgeConfig = {
     name: 'zOS',
     executableName: 'zOS',
     asar: false,
-    icon: path.join(paths.electronStatic, 'icons', 'zero-white-icon'),
+    icon: path.join(paths.electronStatic, 'icons', 'zero-icon'),
     appBundleId: 'com.zero.zOS',
     usageDescription: {
       Camera: 'Needed for video calls',

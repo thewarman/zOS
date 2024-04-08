@@ -13,7 +13,9 @@
     "update-electron-app": "^3.0.0"
   },
   "scripts": {
-    "start": "electron-forge start",
+    "start": "electron-forge start -- --dev",
+    "start-staging": "electron-forge start -- --url https://optimistic-kare-3090a1.netlify.app",
+    "start-prod": "electron-forge start -- --url https://zos.zer0.io",
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish"

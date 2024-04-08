@@ -1,3 +1,4 @@
+import webpack from 'webpack';
 import type { Configuration } from 'webpack';
 import type IForkTsCheckerWebpackPlugin from 'fork-ts-checker-webpack-plugin';
 import TerserPlugin from 'terser-webpack-plugin';
@@ -29,6 +30,10 @@ export const mainConfig: Configuration = {
   plugins: [
     new ForkTsCheckerWebpackPlugin({
       logger: 'webpack-infrastructure',
+    }),
+    new webpack.DefinePlugin({
+      REMOTE_PROD_URL: JSON.stringify('https://zos.zer0.io'),
+      REMOTE_STAGING_URL: JSON.stringify('https://optimistic-kare-3090a1.netlify.app'),
     }),
   ],
   resolve: {

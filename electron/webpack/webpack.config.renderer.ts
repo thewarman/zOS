@@ -75,7 +75,7 @@ export const rendererConfig: webpack.Configuration = {
       patterns: [
         { from: path.join(paths.appPublic, 'olm.js'), to: 'olm.js' },
         { from: path.join(paths.appPublic, 'olm.wasm'), to: 'olm.wasm' },
-        { from: path.join(paths.appPublic, 'logo512.png'), to: 'logo512.png' },
+        { from: path.join(paths.appPublic, 'icon512.png'), to: 'icon512.png' },
       ],
     }),
     new webpack.ProvidePlugin({
