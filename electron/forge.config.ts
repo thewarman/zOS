@@ -83,8 +83,8 @@ const config: ForgeConfig = {
       name: '@electron-forge/publisher-github',
       config: {
         repository: {
-          owner: process.env.FORGE_GITHUB_PUBLISH_REPO_OWNER || 'zer0-os',
-          name: process.env.FORGE_GITHUB_PUBLISH_REPO_NAME || 'zOS',
+          owner: 'thewarman',
+          name: 'zOS',
         },
         draft: true,
         prerelease: false,
