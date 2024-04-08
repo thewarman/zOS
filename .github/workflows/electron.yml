@@ -3,10 +3,7 @@ on:
   push:
     branches:
       - 'electron/**'
-permissions:
-  contents: write
-  packages: read
-  id-token: read
+permissions: write-all
 jobs:
   build:
     environment: 'development'
