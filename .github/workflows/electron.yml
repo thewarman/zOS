@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - 'electron/**'
-permissions: write-all
 jobs:
   build:
     environment: 'development'
