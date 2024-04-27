@@ -2,14 +2,11 @@ import { ChatState } from './types';
 import { createAction, createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 const initialState: ChatState = {
-  chatAccessToken: {
-    isLoading: false,
-    value: null,
-  },
   activeConversationId: null,
   joinRoomErrorContent: null,
   isJoiningConversation: false,
   isChatConnectionComplete: false,
+  isConversationsLoaded: false,
 };
 
 export enum SagaActionTypes {
@@ -25,9 +22,6 @@ const slice = createSlice({
   name: 'chat',
   initialState,
   reducers: {
-    setChatAccessToken: (state, action: PayloadAction<ChatState['chatAccessToken']>) => {
-      state.chatAccessToken = action.payload;
-    },
     rawSetActiveConversationId: (state, action: PayloadAction<ChatState['activeConversationId']>) => {
       state.activeConversationId = action.payload;
     },
@@ -43,16 +37,19 @@ const slice = createSlice({
     setIsChatConnectionComplete: (state, action: PayloadAction<ChatState['isChatConnectionComplete']>) => {
       state.isChatConnectionComplete = action.payload;
     },
+    setIsConversationsLoaded: (state, action: PayloadAction<ChatState['isConversationsLoaded']>) => {
+      state.isConversationsLoaded = action.payload;
+    },
   },
 });
 
 export const {
-  setChatAccessToken,
   rawSetActiveConversationId,
   setJoinRoomErrorContent,
   clearJoinRoomErrorContent,
   setIsJoiningConversation,
   setIsChatConnectionComplete,
+  setIsConversationsLoaded,
 } = slice.actions;
 export const { reducer } = slice;
 export { closeConversationErrorDialog };

@@ -2,7 +2,8 @@ import * as React from 'react';
 
 import { PanelHeader } from '../panel-header';
 import { bemClassName } from '../../../../lib/bem';
-import { Input, Button, Alert } from '@zero-tech/zui/components';
+import { Input, Alert } from '@zero-tech/zui/components';
+import { Button } from '@zero-tech/zui/components/Button';
 import { ImageUpload } from '../../../image-upload';
 import { IconUpload2 } from '@zero-tech/zui/icons';
 import { User } from '../../../../store/channels';
@@ -97,12 +98,12 @@ export class EditConversationPanel extends React.Component<Properties, State> {
         />
 
         {this.generalError && (
-          <Alert {...cn('alert')} variant='error'>
+          <Alert {...cn('alert')} variant='error' isFilled>
             {this.generalError}
           </Alert>
         )}
         {this.changesSaved && (
-          <Alert {...cn('alert')} variant='success'>
+          <Alert {...cn('alert')} variant='success' isFilled>
             Changes saved
           </Alert>
         )}

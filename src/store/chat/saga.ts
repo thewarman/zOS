@@ -8,6 +8,7 @@ import {
   clearJoinRoomErrorContent,
   setIsJoiningConversation,
   setIsChatConnectionComplete,
+  setIsConversationsLoaded,
 } from '.';
 import { Events as ChatEvents, createChatConnection, getChatBus } from './bus';
 import { getAuthChannel, Events as AuthEvents } from '../authentication/channels';
@@ -23,8 +24,8 @@ import { translateJoinRoomApiError, parseAlias, isAlias, extractDomainFromAlias 
 import { joinRoom as apiJoinRoom } from './api';
 import { rawConversationsList } from '../channels-list/selectors';
 
-function* initChat(userId, chatAccessToken) {
-  const { chatConnection, connectionPromise, activate } = createChatConnection(userId, chatAccessToken, chat.get());
+function* initChat(userId, token) {
+  const { chatConnection, connectionPromise, activate } = createChatConnection(userId, token, chat.get());
   const id = yield connectionPromise;
   if (id !== userId) {
     yield call(saveUserMatrixCredentials, id, 'not-used');
@@ -67,9 +68,8 @@ function* connectOnLogin() {
   const user = yield select(currentUserSelector);
   const userId = user.matrixId;
   const token = yield call(getSSOToken);
-  const chatAccessToken = token.token;
 
-  yield initChat(userId, chatAccessToken);
+  yield initChat(userId, token.token);
 }
 
 function* closeConnectionOnLogout(chatConnection) {
@@ -79,6 +79,12 @@ function* closeConnectionOnLogout(chatConnection) {
 }
 
 function* activateWhenConversationsLoaded(activate) {
+  const isConversationsLoaded = yield select((state) => state.chat.isConversationsLoaded);
+  if (isConversationsLoaded) {
+    activate();
+    return;
+  }
+
   const { conversationsLoaded } = yield race({
     conversationsLoaded: take(yield call(getConversationsBus), ConversationEvents.ConversationsLoaded),
     abort: take(yield call(getAuthChannel), AuthEvents.UserLogout),
@@ -92,6 +98,7 @@ function* activateWhenConversationsLoaded(activate) {
 function* clearOnLogout() {
   yield put(rawSetActiveConversationId(null));
   yield put(setIsChatConnectionComplete(false));
+  yield put(setIsConversationsLoaded(false));
 }
 
 function* addAdminUser() {

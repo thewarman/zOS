@@ -1,10 +1,8 @@
 import * as React from 'react';
 
 import { Channel } from '../../../../store/channels';
-import { IconUserPlus1 } from '@zero-tech/zui/icons';
 import { ConversationItem } from '../conversation-item';
-import { InviteDialogContainer } from '../../../invite-dialog/container';
-import { Button, Input, Modal } from '@zero-tech/zui/components';
+import { Input } from '@zero-tech/zui/components';
 import { Item, Option } from '../../lib/types';
 import { UserSearchResults } from '../user-search-results';
 import { itemToOption } from '../../lib/utils';
@@ -14,7 +12,6 @@ import { getDirectMatches, getIndirectMatches } from './utils';
 
 import { bemClassName } from '../../../../lib/bem';
 import './conversation-list-panel.scss';
-import { FeatureFlag } from '../../../feature-flag';
 
 const cn = bemClassName('messages-list');
 
@@ -37,14 +34,19 @@ enum Tab {
 
 interface State {
   filter: string;
-  inviteDialogOpen: boolean;
   userSearchResults: Option[];
   selectedTab: Tab;
+  fadeIn: boolean;
 }
 
 export class ConversationListPanel extends React.Component<Properties, State> {
   scrollContainerRef: React.RefObject<ScrollbarContainer>;
-  state = { filter: '', inviteDialogOpen: false, userSearchResults: [], selectedTab: Tab.All };
+  state = { filter: '', userSearchResults: [], selectedTab: Tab.All, fadeIn: false };
+
+  triggerFadeIn = () => {
+    this.setState({ fadeIn: true });
+    setTimeout(() => this.setState({ fadeIn: false }), 500);
+  };
 
   constructor(props) {
     super(props);
@@ -93,22 +95,6 @@ export class ConversationListPanel extends React.Component<Properties, State> {
     return [...directMatches, ...indirectMatches];
   }
 
-  openInviteDialog = (): void => {
-    this.setState({ inviteDialogOpen: true });
-  };
-
-  closeInviteDialog = (): void => {
-    this.setState({ inviteDialogOpen: false });
-  };
-
-  renderInviteDialog = (): JSX.Element => {
-    return (
-      <Modal open={this.state.inviteDialogOpen} onOpenChange={this.closeInviteDialog}>
-        <InviteDialogContainer onClose={this.closeInviteDialog} />
-      </Modal>
-    );
-  };
-
   openExistingConversation = (id: string) => {
     this.props.onConversationClick({ conversationId: id });
     this.setState({ filter: '' });
@@ -125,6 +111,7 @@ export class ConversationListPanel extends React.Component<Properties, State> {
 
   selectFavorites = () => {
     this.setState({ selectedTab: Tab.Favorites });
+    this.triggerFadeIn();
   };
 
   onFavoriteRoom = (roomId: string) => {
@@ -175,29 +162,27 @@ export class ConversationListPanel extends React.Component<Properties, State> {
             />
           </div>
 
-          <FeatureFlag featureFlag='enableFavorites'>
-            <div {...cn('tab-list')}>
-              <div {...cn('tab', this.state.selectedTab === Tab.All && 'active')} onClick={this.selectAll}>
-                All
-                {!!this.allUnreadCount && (
-                  <div {...cn('tab-badge')}>
-                    <span>{this.allUnreadCount}</span>
-                  </div>
-                )}
-              </div>
-              <div {...cn('tab', this.state.selectedTab === Tab.Favorites && 'active')} onClick={this.selectFavorites}>
-                Favorites
-                {!!this.favoritesUnreadCount && (
-                  <div {...cn('tab-badge')}>
-                    <span>{this.favoritesUnreadCount}</span>
-                  </div>
-                )}
-              </div>
+          <div {...cn('tab-list')}>
+            <div {...cn('tab', this.state.selectedTab === Tab.All && 'active')} onClick={this.selectAll}>
+              All
+              {!!this.allUnreadCount && (
+                <div {...cn('tab-badge')}>
+                  <span>{this.allUnreadCount}</span>
+                </div>
+              )}
             </div>
-          </FeatureFlag>
+            <div {...cn('tab', this.state.selectedTab === Tab.Favorites && 'active')} onClick={this.selectFavorites}>
+              Favorites
+              {!!this.favoritesUnreadCount && (
+                <div {...cn('tab-badge')}>
+                  <span>{this.favoritesUnreadCount}</span>
+                </div>
+              )}
+            </div>
+          </div>
 
           <ScrollbarContainer variant='on-hover' ref={this.scrollContainerRef}>
-            <div {...cn('item-list')}>
+            <div {...cn('item-list', this.state.fadeIn ? 'fade-in' : '')}>
               {this.filteredConversations.length > 0 &&
                 this.filteredConversations.map((c) => (
                   <ConversationItem
@@ -227,15 +212,6 @@ export class ConversationListPanel extends React.Component<Properties, State> {
             </div>
           </ScrollbarContainer>
         </div>
-        <Button
-          {...cn('invite-button')}
-          variant={'text'}
-          onPress={this.openInviteDialog}
-          startEnhancer={<IconUserPlus1 />}
-        >
-          Invite Friends
-        </Button>
-        {this.renderInviteDialog()}
       </>
     );
   }

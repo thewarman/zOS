@@ -23,6 +23,7 @@ import { getZEROUsers } from './api';
 import { union } from 'lodash';
 import { uniqNormalizedList } from '../utils';
 import { channelListStatus, rawConversationsList } from './selectors';
+import { setIsConversationsLoaded } from '../chat';
 
 export function* mapToZeroUsers(channels: any[]) {
   let allMatrixIds = [];
@@ -53,6 +54,18 @@ export function* fetchUserPresence(users) {
     const { lastSeenAt, isOnline } = presenceData;
     yield put(receiveUser({ userId: user.userId, lastSeenAt, isOnline }));
   }
+}
+
+export function* fetchRoomName(roomId) {
+  const chatClient = yield call(chat.get);
+  const roomName = yield call([chatClient, chatClient.getRoomNameById], roomId);
+  yield call(roomNameChanged, roomId, roomName);
+}
+
+export function* fetchRoomAvatar(roomId) {
+  const chatClient = yield call(chat.get);
+  const roomAvatar = yield call([chatClient, chatClient.getRoomAvatarById], roomId);
+  yield call(roomAvatarChanged, roomId, roomAvatar);
 }
 
 export function* fetchConversations() {
@@ -86,6 +99,9 @@ export function* fetchConversations() {
   // state but it does not mean _all_ current known conversations are in state
   // as there are often follow up events still to be processed which would add
   // new conversations to the state. You may prefer waitForChatConnectionCompletion
+
+  yield put(setIsConversationsLoaded(true));
+
   const channel = yield call(getConversationsBus);
   yield put(channel, { type: ConversationEvents.ConversationsLoaded });
 }
@@ -300,6 +316,8 @@ export function* addChannel(channel) {
   const conversationsList = yield select(rawConversationsList);
   yield call(mapToZeroUsers, [channel]);
   yield fork(fetchUserPresence, channel.otherMembers);
+  yield fork(fetchRoomName, channel.id);
+  yield fork(fetchRoomAvatar, channel.id);
 
   yield put(receive(uniqNormalizedList([...conversationsList, channel])));
 }

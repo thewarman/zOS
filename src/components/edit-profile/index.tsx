@@ -1,6 +1,7 @@
 import * as React from 'react';
 
-import { IconButton, Alert, Button, Input, Tooltip, SelectInput, LoadingIndicator } from '@zero-tech/zui/components';
+import { IconButton, Alert, Input, Tooltip, SelectInput, LoadingIndicator } from '@zero-tech/zui/components';
+import { Button } from '@zero-tech/zui/components/Button';
 
 import './styles.scss';
 import { bem } from '../../lib/bem';
@@ -25,9 +26,6 @@ export interface Properties {
   loadingZIDs: boolean;
   onEdit: (data: { name: string; image: File; primaryZID: string }) => void;
   onClose?: () => void;
-
-  onLeaveGlobal: () => void;
-  onJoinGlobal: () => void;
 }
 
 interface State {
@@ -227,24 +225,7 @@ export class EditProfile extends React.Component<Properties, State> {
         )}
 
         <div className={c('footer')}>
-          {featureFlags.internalUsage && (
-            <>
-              <Button className={c('zui-button-large')} onPress={this.props.onLeaveGlobal}>
-                Leave Global
-              </Button>
-              <Button className={c('zui-button-large')} onPress={this.props.onJoinGlobal}>
-                Join Global
-              </Button>
-            </>
-          )}
-
-          <Button
-            className={c('zui-button-large')}
-            isLoading={this.isLoading}
-            isSubmit
-            isDisabled={this.isDisabled}
-            onPress={this.handleEdit}
-          >
+          <Button isLoading={this.isLoading} isSubmit isDisabled={this.isDisabled} onPress={this.handleEdit}>
             Save Changes
           </Button>
         </div>

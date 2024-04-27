@@ -11,7 +11,6 @@ export interface RealtimeChatEvents {
   onMessageUpdated: (channelId: string, message: Message) => void;
   receiveUnreadCount: (channelId: string, unreadCount: number) => void;
   onUserJoinedChannel: (conversation) => void;
-  invalidChatAccessToken: () => void;
   onUserLeft: (channelId: string, userId: string) => void;
   onUserPresenceChanged: (matrixId: string, isOnline: boolean, lastSeenAt: string) => void;
   onRoomNameChanged: (channelId: string, name: string) => void;
@@ -39,6 +38,8 @@ export interface IChatClient {
   reconnect: () => void;
   supportsOptimisticCreateConversation: () => boolean;
   getUserPresence: (userId: string) => Promise<any>;
+  getRoomNameById: (id: string) => Promise<string>;
+  getRoomAvatarById: (id: string) => Promise<string>;
   getChannels: (id: string) => Promise<Partial<Channel>[]>;
   getConversations: () => Promise<Partial<Channel>[]>;
   searchMyNetworksByName: (filter: string) => Promise<MemberNetworks[] | any>;
@@ -103,6 +104,14 @@ export class Chat {
 
   async getUserPresence(userId: string) {
     return this.client.getUserPresence(userId);
+  }
+
+  async getRoomNameById(roomId: string) {
+    return this.client.getRoomNameById(roomId);
+  }
+
+  async getRoomAvatarById(roomId: string) {
+    return this.client.getRoomAvatarById(roomId);
   }
 
   async getConversations() {

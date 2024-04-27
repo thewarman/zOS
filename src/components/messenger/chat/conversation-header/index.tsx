@@ -3,9 +3,9 @@ import * as React from 'react';
 import { User } from '../../../../store/channels';
 import { otherMembersToString } from '../../../../platform-apps/channels/util';
 import Tooltip from '../../../tooltip';
-import { isCustomIcon } from '../../list/utils/utils';
 import { getProvider } from '../../../../lib/cloudinary/provider';
 import { GroupManagementMenu } from '../../../group-management-menu';
+import { lastSeenText } from '../../list/utils/utils';
 
 import { IconCurrencyEthereum, IconUsers1 } from '@zero-tech/zui/icons';
 
@@ -39,7 +39,7 @@ export class ConversationHeader extends React.Component<Properties> {
       return '';
     }
 
-    if (isCustomIcon(this.props.icon)) {
+    if (this.props.icon) {
       return this.props.icon;
     }
 
@@ -71,10 +71,16 @@ export class ConversationHeader extends React.Component<Properties> {
   };
 
   renderSubTitle() {
-    if (!this.props.otherMembers) {
+    if (!this.props.otherMembers || this.props.otherMembers.length === 0) {
       return '';
-    } else if (this.isOneOnOne() && this.props.otherMembers[0]) {
-      return this.props.otherMembers[0].displaySubHandle;
+    }
+
+    const member = this.props.otherMembers[0];
+
+    if (this.isOneOnOne() && member) {
+      const lastSeen = lastSeenText(member);
+      const hasDivider = lastSeen && member.displaySubHandle ? ' | ' : '';
+      return `${member.displaySubHandle || ''}${hasDivider}${lastSeen}`.trim();
     } else {
       return this.anyOthersOnline() ? 'Online' : 'Offline';
     }

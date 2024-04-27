@@ -14,6 +14,16 @@
   }
 }
 
+@keyframes fadeInEffect {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 $side-padding: 16px;
 
 .messages-list {
@@ -41,7 +51,7 @@ $side-padding: 16px;
     &--active {
       @include glass-text-primary-color;
       border-radius: 9999px;
-      border: 1px solid $glass-separator-secondary-color;
+      border: 1px solid $glass-highlight-color;
 
       &:hover {
         cursor: auto;
@@ -84,7 +94,7 @@ $side-padding: 16px;
     display: flex;
     gap: 16px;
     flex-direction: column;
-    padding: 16px 0 16px;
+    padding: 16px 0 0;
 
     animation: conversation-slide-in 600ms ease-in forwards;
 
@@ -112,6 +122,10 @@ $side-padding: 16px;
     height: 1px;
     // accounts for 4px scrollbar width on right side of container
     padding: 0 12px 0 16px;
+
+    &.fade-in {
+      animation: fadeInEffect 0.5s ease-in-out;
+    }
   }
 
   &__empty {
@@ -150,9 +164,4 @@ $side-padding: 16px;
     background-size: cover;
     background-repeat: no-repeat;
   }
-}
-
-.messages-list__invite-button {
-  margin: 0px 16px;
-  stroke-width: 2px; // make startEnhancer bold
 }
