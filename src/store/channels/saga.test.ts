@@ -2,23 +2,23 @@ import { expectSaga } from 'redux-saga-test-plan';
 import * as matchers from 'redux-saga-test-plan/matchers';
 
 import {
-  roomFavorited,
   markAllMessagesAsRead,
   markConversationAsRead,
   receiveChannel,
-  onFavoriteRoom,
   unreadCountUpdated,
-  onUnfavoriteRoom,
-  roomUnfavorited,
   publishUserTypingEvent,
   receivedRoomMembersTyping,
   receivedRoomMemberPowerLevelChanged,
+  onAddLabel,
+  onRemoveLabel,
+  roomLabelChange,
 } from './saga';
 
 import { rootReducer } from '../reducer';
-import { ConversationStatus, denormalize as denormalizeChannel } from '../channels';
+import { ConversationStatus, DefaultRoomLabels, denormalize as denormalizeChannel } from '../channels';
 import { StoreBuilder } from '../test/store';
-import { addRoomToFavorites, chat, removeRoomFromFavorites, sendTypingEvent } from '../../lib/chat';
+import { addRoomToLabel, chat, removeRoomFromLabel, sendTypingEvent } from '../../lib/chat';
+import { getHistory } from '../../lib/browser';
 
 const userId = 'user-id';
 
@@ -42,34 +42,24 @@ describe('channels list saga', () => {
   });
 
   describe('markConversationAsReadIfActive', () => {
-    it('mark all messages as read', async () => {
+    it('does not mark all messages as read if conversation is not active', async () => {
       const channelId = 'channel-id';
       const state = new StoreBuilder()
         .withCurrentUserId(userId)
-        .withActiveConversation({ id: channelId, unreadCount: 3 })
+        .withActiveConversation({ id: 'other-channel-id', unreadCount: { total: 0, highlight: 0 } })
         .build();
 
       await expectSaga(markConversationAsRead, channelId)
         .provide([
           [matchers.call.fn(chat.get), mockChatClient],
           [matchers.call.fn(mockChatClient.markRoomAsRead), 200],
-        ])
-        .withReducer(rootReducer, state)
-        .call(markAllMessagesAsRead, channelId, userId)
-        .run();
-    });
-
-    it('does not mark all messages as read if unreadCount is 0', async () => {
-      const channelId = 'channel-id';
-      const state = new StoreBuilder()
-        .withCurrentUserId(userId)
-        .withActiveConversation({ id: channelId, unreadCount: 0 })
-        .build();
-
-      await expectSaga(markConversationAsRead, channelId)
-        .provide([
-          [matchers.call.fn(chat.get), mockChatClient],
-          [matchers.call.fn(mockChatClient.markRoomAsRead), 200],
+          [
+            matchers.call.fn(getHistory),
+            {
+              push: jest.fn(),
+              location: { pathname: '/conversation/other-channel-id' },
+            },
+          ],
         ])
         .withReducer(rootReducer, state)
         .not.call(markAllMessagesAsRead, channelId, userId)
@@ -81,9 +71,11 @@ describe('channels list saga', () => {
 describe(unreadCountUpdated, () => {
   it('updates the unread count for the channel', async () => {
     const channelId = 'channel-id';
-    const updatedUnreadCount = 4;
+    const updatedUnreadCount = { total: 4, highlight: 0 };
 
-    const initialState = new StoreBuilder().withConversationList({ id: channelId, unreadCount: 3 }).build();
+    const initialState = new StoreBuilder()
+      .withConversationList({ id: channelId, unreadCount: { total: 3, highlight: 0 } })
+      .build();
     const { storeState } = await expectSaga(unreadCountUpdated, {
       payload: { channelId, unreadCount: updatedUnreadCount },
     })
@@ -97,83 +89,103 @@ describe(unreadCountUpdated, () => {
 
 describe(receiveChannel, () => {
   it('puts only the provided values if channel already exists', async () => {
-    const initialChannel = { id: 'channel-id', unreadCount: 5, name: 'channel-name' };
+    const initialChannel = { id: 'channel-id', unreadCount: { total: 5, highlight: 0 }, name: 'channel-name' };
     const initialState = new StoreBuilder().withConversationList(initialChannel);
-    const { storeState } = await expectSaga(receiveChannel, { id: 'channel-id', unreadCount: 3 })
+    const { storeState } = await expectSaga(receiveChannel, {
+      id: 'channel-id',
+      unreadCount: { total: 3, highlight: 0 },
+    })
       .withReducer(rootReducer, initialState.build())
       .run();
 
     const channel = denormalizeChannel('channel-id', storeState);
     // Clean up because full comparison is important here
     delete channel.__denormalized;
-    expect(channel).toEqual({ ...initialChannel, unreadCount: 3 });
+    expect(channel).toEqual({ ...initialChannel, unreadCount: { total: 3, highlight: 0 } });
   });
 
   it('defaults the conversation state if channel does not exist yet', async () => {
-    const { storeState } = await expectSaga(receiveChannel, { id: 'channel-id', unreadCount: 3 })
+    const { storeState } = await expectSaga(receiveChannel, {
+      id: 'channel-id',
+      unreadCount: { total: 3, highlight: 0 },
+      zid: null,
+    })
       .withReducer(rootReducer)
       .run();
 
     const channel = denormalizeChannel('channel-id', storeState);
     // Clean up because full comparison is important here
     delete channel.__denormalized;
-    expect(channel).toEqual({ ...CHANNEL_DEFAULTS, id: 'channel-id', unreadCount: 3 });
+    expect(channel).toEqual({
+      ...CHANNEL_DEFAULTS,
+      id: 'channel-id',
+      unreadCount: { total: 3, highlight: 0 },
+      zid: null,
+    });
   });
 });
 
-describe(roomFavorited, () => {
-  it('updates favorites for room', async () => {
-    const initialState = new StoreBuilder().withConversationList({ id: 'room-id', isFavorite: false }).build();
-    const { storeState } = await expectSaga(roomFavorited, {
-      payload: { roomId: 'room-id' },
+describe(onAddLabel, () => {
+  it('calls addRoomToLabel with the label to be added', async () => {
+    const initialState = new StoreBuilder()
+      .withConversationList({ id: 'room-id', labels: [DefaultRoomLabels.FAMILY] })
+      .build();
+
+    await expectSaga(onAddLabel, { payload: { roomId: 'room-id', label: 'm.work' } })
+      .withReducer(rootReducer, initialState)
+      .provide([
+        [matchers.call.fn(addRoomToLabel), undefined],
+      ])
+      .call(addRoomToLabel, 'room-id', DefaultRoomLabels.WORK)
+      .run();
+  });
+});
+
+describe(onRemoveLabel, () => {
+  it('calls removeRoomFromLabel with the label to be removed', async () => {
+    const initialState = new StoreBuilder()
+      .withConversationList({ id: 'room-id', labels: [DefaultRoomLabels.WORK, DefaultRoomLabels.FAMILY] })
+      .build();
+
+    await expectSaga(onRemoveLabel, { payload: { roomId: 'room-id', label: DefaultRoomLabels.WORK } })
+      .withReducer(rootReducer, initialState)
+      .provide([
+        [matchers.call.fn(removeRoomFromLabel), undefined],
+      ])
+      .call(removeRoomFromLabel, 'room-id', DefaultRoomLabels.WORK)
+      .run();
+  });
+});
+
+describe(roomLabelChange, () => {
+  it('removes label from room', async () => {
+    const initialState = new StoreBuilder()
+      .withConversationList({ id: 'room-id', labels: [DefaultRoomLabels.WORK, DefaultRoomLabels.FAMILY] })
+      .build();
+
+    const { storeState } = await expectSaga(roomLabelChange, {
+      payload: { roomId: 'room-id', labels: [DefaultRoomLabels.WORK] },
     })
       .withReducer(rootReducer, initialState)
       .run();
 
     const channel = denormalizeChannel('room-id', storeState);
-    expect(channel.isFavorite).toEqual(true);
+    expect(channel.labels).toEqual([DefaultRoomLabels.WORK]);
   });
-});
 
-describe(onFavoriteRoom, () => {
-  it('calls addRoomToFavorites when channel is not already favorite', async () => {
-    const initialState = new StoreBuilder().withConversationList({ id: 'channel-id', isFavorite: false }).build();
+  it('adds label to room', async () => {
+    const initialState = new StoreBuilder()
+      .withConversationList({ id: 'room-id', labels: [DefaultRoomLabels.WORK] })
+      .build();
 
-    await expectSaga(onFavoriteRoom, { payload: { roomId: 'channel-id' } })
-      .withReducer(rootReducer, initialState)
-      .provide([
-        [matchers.call.fn(addRoomToFavorites), undefined],
-      ])
-      .call(addRoomToFavorites, 'channel-id')
-      .run();
-  });
-});
-
-describe(roomUnfavorited, () => {
-  it('updates unfavorite for room', async () => {
-    const initialState = new StoreBuilder().withConversationList({ id: 'room-id', isFavorite: true }).build();
-    const { storeState } = await expectSaga(roomUnfavorited, {
-      payload: { roomId: 'room-id' },
+    const { storeState } = await expectSaga(roomLabelChange, {
+      payload: { roomId: 'room-id', labels: [DefaultRoomLabels.WORK, DefaultRoomLabels.FAMILY] },
     })
       .withReducer(rootReducer, initialState)
       .run();
 
     const channel = denormalizeChannel('room-id', storeState);
-    expect(channel.isFavorite).toEqual(false);
-  });
-});
-
-describe(onUnfavoriteRoom, () => {
-  it('calls removeRoomFromFavorites when channel is already favorite', async () => {
-    const initialState = new StoreBuilder().withConversationList({ id: 'channel-id', isFavorite: true }).build();
-
-    await expectSaga(onUnfavoriteRoom, { payload: { roomId: 'channel-id' } })
-      .withReducer(rootReducer, initialState)
-      .provide([
-        [matchers.call.fn(removeRoomFromFavorites), undefined],
-      ])
-      .call(removeRoomFromFavorites, 'channel-id')
-      .run();
+    expect(channel.labels).toEqual([DefaultRoomLabels.WORK, DefaultRoomLabels.FAMILY]);
   });
 });
 
@@ -302,9 +314,10 @@ const CHANNEL_DEFAULTS = {
   otherMembers: [],
   memberHistory: [],
   hasMore: true,
+  hasMorePosts: true,
   createdAt: 0,
   lastMessage: null,
-  unreadCount: 0,
+  unreadCount: { total: 0, highlight: 0 },
   icon: '',
   isOneOnOne: true,
   hasLoadedMessages: false,
@@ -312,6 +325,8 @@ const CHANNEL_DEFAULTS = {
   messagesFetchStatus: null,
   adminMatrixIds: [],
   moderatorIds: [],
-  isFavorite: false,
   otherMembersTyping: [],
+  labels: [],
+  isSocialChannel: false,
+  zid: null,
 };

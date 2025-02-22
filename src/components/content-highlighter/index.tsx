@@ -20,9 +20,9 @@ const cn = bemClassName('content-highlighter');
 
 export class ContentHighlighter extends React.Component<Properties> {
   renderContent(message) {
-    const parts = message.split(/(@\[.*?\]\([a-z]+:[A-Za-z0-9_-]+\))/gi);
+    const parts = message.split(/(@\[.*?\]\([a-z]+:[A-Za-z0-9_@:.-]+\))/gi);
     return parts.map((part, index) => {
-      const match = part.match(/@\[(.*?)\]\(([a-z]+):([A-Za-z0-9_-]+)\)/i);
+      const match = part.match(/@\[(.*?)\]\(([a-z]+):([A-Za-z0-9_@:.-]+)\)/i);
 
       if (!match) {
         return textToPlainEmojis(part);
@@ -30,19 +30,17 @@ export class ContentHighlighter extends React.Component<Properties> {
 
       if (match[2] === 'user') {
         const mention = `${match[1]}`.trim();
-        const props: { className: string; key: string } = {
+        const props: { className: string } = {
           ...cn('user-mention'),
-          key: match[3] + index,
         };
 
         return (
-          <span data-variant={this.props.variant} {...props}>
+          <span key={match[3] + index} data-variant={this.props.variant} {...props}>
             {this.props.variant === 'negative' && '@'}
             {mention}
           </span>
         );
       }
-
       return part;
     });
   }

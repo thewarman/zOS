@@ -3,7 +3,16 @@ import classNames from 'classnames';
 import { RootState } from '../../store/reducer';
 
 import { connectContainer } from '../../store/redux-container';
-import { fetch as fetchMessages, editMessage, Message, EditMessageOptions } from '../../store/messages';
+import {
+  fetch as fetchMessages,
+  editMessage,
+  Message,
+  EditMessageOptions,
+  loadAttachmentDetails,
+  Media,
+  AdminMessageType,
+  sendEmojiReaction,
+} from '../../store/messages';
 import { Channel, ConversationStatus, denormalize, onReply } from '../../store/channels';
 import { ChatView } from './chat-view';
 import { AuthenticationState } from '../../store/authentication/types';
@@ -11,7 +20,11 @@ import { EditPayload, Payload as PayloadFetchMessages } from '../../store/messag
 import { openBackupDialog } from '../../store/matrix';
 import { ParentMessage } from '../../lib/chat/types';
 import { compareDatesAsc } from '../../lib/date';
-import { openDeleteMessage } from '../../store/dialogs';
+import { openDeleteMessage, openLightbox } from '../../store/dialogs';
+import { openMessageInfo } from '../../store/message-info';
+import { toggleSecondarySidekick } from '../../store/group-management';
+import { linkMessages, mapMessagesById, mapMessagesByRootId } from './utils';
+import { openReportUserModal } from '../../store/report-user';
 
 export interface Properties extends PublicProperties {
   channel: Channel;
@@ -26,6 +39,12 @@ export interface Properties extends PublicProperties {
   };
   isSecondarySidekickOpen: boolean;
   openDeleteMessage: (messageId: number) => void;
+  toggleSecondarySidekick: () => void;
+  openMessageInfo: (payload: { roomId: string; messageId: number }) => void;
+  loadAttachmentDetails: (payload: { media: Media; messageId: string }) => void;
+  sendEmojiReaction: (payload: { roomId: string; messageId: string; key: string }) => void;
+  openReportUserModal: (payload: { reportedUserId: string }) => void;
+  openLightbox: (payload: { media: any[]; startingIndex: number }) => void;
 }
 
 interface PublicProperties {
@@ -66,12 +85,18 @@ export class Container extends React.Component<Properties> {
       onReply,
       openBackupDialog,
       openDeleteMessage,
+      openMessageInfo,
+      toggleSecondarySidekick,
+      loadAttachmentDetails,
+      sendEmojiReaction,
+      openReportUserModal,
+      openLightbox,
     };
   }
 
   componentDidMount() {
-    const { channelId } = this.props;
-    if (channelId) {
+    const { channelId, channel } = this.props;
+    if (channelId && !channel.hasLoadedMessages) {
       this.props.fetchMessages({ channelId });
     }
   }
@@ -134,23 +159,24 @@ export class Container extends React.Component<Properties> {
     }
   };
 
+  sendEmojiReaction = async (messageId, key) => {
+    try {
+      await this.props.sendEmojiReaction({ roomId: this.props.channelId, messageId, key });
+    } catch (error) {
+      console.error('Failed to send emoji reaction:', error);
+    }
+  };
+
   get messages() {
-    const messagesById = {};
-    const messages = [];
-    // Assumption is that messages are already ordered by date and that
-    // the "child" message will always come after the "parent" message.
-    (this.channel?.messages || []).forEach((m) => {
-      if (m.rootMessageId && messagesById[m.rootMessageId]) {
-        messagesById[m.rootMessageId].media = m.media;
-      } else {
-        // Hmm... not sure how we ended up with integers as our message ids. For now, just cast to a string.
-        messagesById[m.id.toString()] = m;
-        if (m.id.toString() !== m.optimisticId) {
-          messagesById[m.optimisticId] = m;
-        }
-        messages.push(m);
-      }
-    });
+    const allMessages = this.channel?.messages || [];
+
+    const chatMessages = allMessages.filter(
+      (message) => !message.isPost && (!message.admin || message.admin?.type !== AdminMessageType.REACTION)
+    );
+
+    const messagesById = mapMessagesById(chatMessages);
+    const messagesByRootId = mapMessagesByRootId(chatMessages);
+    const messages = linkMessages(chatMessages, messagesById, messagesByRootId);
 
     return messages.sort((a, b) => compareDatesAsc(a.createdAt, b.createdAt));
   }
@@ -191,6 +217,10 @@ export class Container extends React.Component<Properties> {
     return this.props.channel?.isOneOnOne;
   }
 
+  onReportUser = ({ reportedUserId }: { reportedUserId: string }) => {
+    this.props.openReportUserModal({ reportedUserId });
+  };
+
   render() {
     if (!this.props.channel) return null;
 
@@ -212,10 +242,16 @@ export class Container extends React.Component<Properties> {
           showSenderAvatar={this.props.showSenderAvatar}
           isOneOnOne={this.isOneOnOne}
           onReply={this.props.onReply}
+          onReportUser={this.onReportUser}
           conversationErrorMessage={this.conversationErrorMessage}
           onHiddenMessageInfoClick={this.props.openBackupDialog}
           ref={this.chatViewRef}
           isSecondarySidekickOpen={this.props.isSecondarySidekickOpen}
+          toggleSecondarySidekick={this.props.toggleSecondarySidekick}
+          openMessageInfo={this.props.openMessageInfo}
+          loadAttachmentDetails={this.props.loadAttachmentDetails}
+          sendEmojiReaction={this.sendEmojiReaction}
+          openLightbox={this.props.openLightbox}
         />
       </>
     );

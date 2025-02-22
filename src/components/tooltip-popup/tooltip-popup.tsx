@@ -5,11 +5,12 @@ import type { ReactNode } from 'react';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import { IconXClose } from '@zero-tech/zui/icons';
 import { IconButton } from '@zero-tech/zui/components';
-import { ReactComponent as TooltipHead } from '../../tooltip-head.svg';
+import TooltipHead from '../../tooltip-head.svg?react';
 
 const c = bem('tooltip-popup');
 
 export interface Properties {
+  children?: ReactNode;
   open?: TooltipPrimitive.TooltipProps['open'];
   onOpenChange?: TooltipPrimitive.TooltipProps['onOpenChange'];
   side?: TooltipPrimitive.TooltipContentProps['side'];

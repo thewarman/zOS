@@ -43,7 +43,7 @@ export class FeatureFlags {
   }
 
   get enableRewards() {
-    return this._getBoolean('enableRewards', false);
+    return this._getBoolean('enableRewards', true);
   }
 
   set enableRewards(value: boolean) {
@@ -96,6 +96,110 @@ export class FeatureFlags {
 
   set enableUserSettings(value: boolean) {
     this._setBoolean('enableUserSettings', value);
+  }
+
+  get enableTimerLogs() {
+    return this._getBoolean('enableTimerLogs', false);
+  }
+
+  set enableTimerLogs(value: boolean) {
+    this._setBoolean('enableTimerLogs', value);
+  }
+
+  get enableChannels() {
+    return this._getBoolean('enableChannels', true);
+  }
+
+  set enableChannels(value: boolean) {
+    this._setBoolean('enableChannels', value);
+  }
+
+  get enableCollapseableMenu() {
+    return this._getBoolean('enableCollapseableMenu', true);
+  }
+
+  set enableCollapseableMenu(value: boolean) {
+    this._setBoolean('enableCollapseableMenu', value);
+  }
+
+  get enableMeows() {
+    return this._getBoolean('enableMeows', true);
+  }
+
+  set enableMeows(value: boolean) {
+    this._setBoolean('enableMeows', value);
+  }
+
+  get enableTokenGatedChat() {
+    return this._getBoolean('enableTokenGatedChat', true);
+  }
+
+  set enableTokenGatedChat(value: boolean) {
+    this._setBoolean('enableTokenGatedChat', value);
+  }
+
+  get enableNotificationsApp() {
+    return this._getBoolean('enableNotificationsApp', true);
+  }
+
+  set enableNotificationsApp(value: boolean) {
+    this._setBoolean('enableNotificationsApp', value);
+  }
+
+  get enableNotificationsReadStatus() {
+    return this._getBoolean('enableNotificationsReadStatus', false);
+  }
+
+  set enableNotificationsReadStatus(value: boolean) {
+    this._setBoolean('enableNotificationsReadStatus', value);
+  }
+
+  get enableLoadMore() {
+    return this._getBoolean('enableLoadMore', true);
+  }
+
+  set enableLoadMore(value: boolean) {
+    this._setBoolean('enableLoadMore', value);
+  }
+
+  get enableComments() {
+    return this._getBoolean('enableComments', true);
+  }
+
+  set enableComments(value: boolean) {
+    this._setBoolean('enableComments', value);
+  }
+
+  get enableFeedApp() {
+    return this._getBoolean('enableFeedApp', true);
+  }
+
+  set enableFeedApp(value: boolean) {
+    this._setBoolean('enableFeedApp', value);
+  }
+
+  get enableLinkedAccounts() {
+    return this._getBoolean('enableLinkedAccounts', true);
+  }
+
+  set enableLinkedAccounts(value: boolean) {
+    this._setBoolean('enableLinkedAccounts', value);
+  }
+
+  get enableZeroWalletSigning() {
+    return this._getBoolean('enableZeroWalletSigning', true);
+  }
+
+  set enableZeroWalletSigning(value: boolean) {
+    this._setBoolean('enableZeroWalletSigning', value);
+  }
+
+  get enableFeedChat() {
+    return this._getBoolean('enableFeedChat', true);
+  }
+
+  set enableFeedChat(value: boolean) {
+    this._setBoolean('enableFeedChat', value);
   }
 }
 

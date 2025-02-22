@@ -1,5 +1,7 @@
 import encrypt from 'matrix-encrypt-attachment';
 import { getAttachmentUrl } from '../../api/attachment';
+import { getAccessToken, mxcUrlToHttp } from '..';
+import { encode } from 'blurhash';
 
 /**
  * Read the file as an ArrayBuffer.
@@ -18,6 +20,80 @@ export function readFileAsArrayBuffer(file: File | Blob): Promise<ArrayBuffer> {
     };
     reader.readAsArrayBuffer(file);
   });
+}
+
+/**
+ * Get the dimensions of an image file.
+ * @param {File} file The image file to read.
+ * @return {Promise} A promise that resolves with an object containing
+ *   the width and height of the image when it is loaded.
+ */
+export function getImageDimensions(file: File): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.width, height: img.height });
+    };
+    img.onerror = () => {
+      reject(new Error('Unable to determine image dimensions.'));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+/**
+ * Get the pixel data of an image file.
+ * @param {File} file The image file to read.
+ * @return {Promise} A promise that resolves with an ImageData object containing
+ *   the pixel data of the image when it is loaded.
+ */
+export function getImagePixelData(file: File): Promise<ImageData> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const imageData = event.target?.result;
+
+      const img = new Image();
+      img.src = imageData as string;
+
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, img.width, img.height);
+          const imageData = ctx.getImageData(0, 0, img.width, img.height);
+          resolve(imageData);
+        } else {
+          reject(new Error('Failed to get canvas context'));
+        }
+      };
+
+      img.onerror = (error) => {
+        reject(error);
+      };
+    };
+
+    reader.onerror = (error) => {
+      reject(error);
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Generate a Blurhash for an image file.
+ * @param {File} file The image file to read.
+ * @return {Promise} A promise that resolves with the Blurhash string when the image is processed.
+ */
+export async function generateBlurhash(file: File): Promise<string> {
+  const imageData = await getImagePixelData(file);
+  const blurhash = encode(imageData.data, imageData.width, imageData.height, 3, 2);
+  return blurhash;
 }
 
 export class UploadCanceledError extends Error {}
@@ -45,24 +121,47 @@ export async function encryptFile(file: File): Promise<{ info: encrypt.IEncrypte
   };
 }
 
-// https://github.com/matrix-org/matrix-react-sdk/blob/develop/src/utils/DecryptFile.ts#L50
-export async function decryptFile(encrypedFile, info): Promise<Blob> {
-  const signedUrl = await getAttachmentUrl({ key: encrypedFile.url });
+export function isFileUploadedToMatrix(url: string): boolean {
+  if (!url || typeof url !== 'string') return false;
 
-  // Download the encrypted file as an array buffer.
-  const response = await fetch(signedUrl);
+  return url.includes('_matrix/client/v1/media/download') || url.startsWith('mxc://');
+}
+
+// https://github.com/matrix-org/matrix-react-sdk/blob/develop/src/utils/DecryptFile.ts#L50
+export async function decryptFile(encryptedFile, mimetype): Promise<Blob> {
+  // Determine if the file is encrypted by checking for encryption-related fields
+  const isEncrypted = !!(encryptedFile.key && encryptedFile.iv && encryptedFile.hashes?.sha256);
+
+  const url = encryptedFile.url;
+  let response;
+
+  if (isFileUploadedToMatrix(url)) {
+    response = await fetch(mxcUrlToHttp(url), {
+      headers: {
+        Authorization: `Bearer ${getAccessToken()}`,
+      },
+    });
+  } else {
+    const signedUrl = await getAttachmentUrl({ key: encryptedFile.url });
+    response = await fetch(signedUrl);
+  }
+
   if (!response.ok) {
-    throw new Error(`Error occurred while downloading file ${info.name}: ${await response.text()}`);
+    throw new Error(`Error occurred while downloading file ${encryptedFile.url}: ${await response.text()}`);
   }
   const responseData: ArrayBuffer = await response.arrayBuffer();
 
-  try {
-    // Decrypt the array buffer using the information taken from the event content.
-    const dataArray = await encrypt.decryptAttachment(responseData, encrypedFile);
-
-    // Turn the array into a Blob and give it the correct MIME-type.
-    return new Blob([dataArray], { type: info?.mimetype });
-  } catch (e) {
-    throw new Error(`Error occurred while decrypting file ${info.name}: ${e}`);
+  if (isEncrypted) {
+    try {
+      // Decrypt the array buffer using the information taken from the event content
+      const dataArray = await encrypt.decryptAttachment(responseData, encryptedFile);
+      // Turn the array into a Blob and give it the correct MIME-type
+      return new Blob([dataArray], { type: mimetype });
+    } catch (e) {
+      throw new Error(`Error occurred while decrypting file ${encryptedFile.url}: ${e}`);
+    }
+  } else {
+    // For non-encrypted files, directly create a Blob from the downloaded data
+    return new Blob([responseData], { type: mimetype });
   }
 }

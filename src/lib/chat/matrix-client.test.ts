@@ -5,23 +5,23 @@ import { uploadImage as _uploadImage } from '../../store/channels-list/api';
 import { when } from 'jest-when';
 import { config } from '../../config';
 import { PowerLevels } from './types';
-import { MatrixConstants, ReadReceiptPreferenceType } from './matrix/types';
+import { MatrixConstants, ReactionKeys, ReadReceiptPreferenceType } from './matrix/types';
+import { DefaultRoomLabels } from '../../store/channels';
 
 jest.mock('./matrix/utils', () => ({ setAsDM: jest.fn().mockResolvedValue(undefined) }));
 
-const mockUploadImage = jest.fn();
-jest.mock('../../store/channels-list/api', () => {
-  return { uploadImage: (...args) => mockUploadImage(...args) };
-});
-
 const mockEncryptFile = jest.fn();
+const mockGetImageDimensions = jest.fn();
+const mockGenerateBlurhash = jest.fn();
 jest.mock('./matrix/media', () => {
-  return { encryptFile: (...args) => mockEncryptFile(...args) };
-});
+  const originalModule = jest.requireActual('./matrix/media');
 
-const mockUploadAttachment = jest.fn();
-jest.mock('../../store/messages/api', () => {
-  return { uploadAttachment: (...args) => mockUploadAttachment(...args) };
+  return {
+    ...originalModule,
+    encryptFile: (...args) => mockEncryptFile(...args),
+    getImageDimensions: (...args) => mockGetImageDimensions(...args),
+    generateBlurhash: (...args) => mockGenerateBlurhash(...args),
+  };
 });
 
 const stubRoom = (attrs = {}) => ({
@@ -38,6 +38,7 @@ const stubRoom = (attrs = {}) => ({
   getUnreadNotificationCount: () => 0,
   on: () => undefined,
   off: () => undefined,
+  hasEncryptionStateEvent: jest.fn(() => false),
   ...attrs,
 });
 
@@ -69,7 +70,6 @@ const getSdkClient = (sdkClient = {}) => ({
   setGlobalErrorOnUnknownDevices: () => undefined,
   fetchRoomEvent: jest.fn(),
   paginateEventTimeline: () => true,
-  isRoomEncrypted: () => true,
   invite: jest.fn().mockResolvedValue({}),
   setRoomTag: jest.fn().mockResolvedValue({}),
   deleteRoomTag: jest.fn().mockResolvedValue({}),
@@ -105,12 +105,6 @@ function resolveWith<T>(valueToResolve: T) {
 
   return { resolve: theResolve, mock: () => promise };
 }
-
-const featureFlags = { enableReadReceiptPreferences: false };
-
-jest.mock('../../lib/feature-flags', () => ({
-  featureFlags,
-}));
 
 describe('matrix client', () => {
   describe('disconnect', () => {
@@ -437,10 +431,151 @@ describe('matrix client', () => {
 
     it('uploads the image', async () => {
       const createRoom = jest.fn().mockResolvedValue({ room_id: 'new-room-id' });
-      when(mockUploadImage).calledWith(expect.anything()).mockResolvedValue({ url: 'upload-url' });
-      const client = await subject({ createRoom });
+      const uploadContent = jest.fn().mockResolvedValue({ content_uri: 'upload-url' });
+      const mxcUrlToHttp = jest.fn().mockReturnValue('upload-url');
+      const client = await subject({ createRoom, uploadContent, mxcUrlToHttp });
 
       await client.createConversation(
+        [{ userId: 'id', matrixId: '@somebody.else' }],
+        null,
+        { name: 'test file' } as File,
+        null
+      );
+
+      expect(createRoom).toHaveBeenCalledWith(
+        expect.objectContaining({
+          initial_state: expect.arrayContaining([
+            { type: EventType.RoomAvatar, state_key: '', content: { url: 'upload-url' } },
+          ]),
+        })
+      );
+    });
+  });
+
+  describe('createUnencryptedConversation', () => {
+    const subject = async (stubs = {}, sessionStorage = { userId: 'stub-user-id' }) => {
+      const allStubs = {
+        createRoom: jest.fn().mockResolvedValue({ room_id: 'stub-id' }),
+        getRoom: jest.fn().mockReturnValue(stubRoom({})),
+        ...stubs,
+      };
+      const allProps: any = {
+        createClient: (_opts: any) => getSdkClient(allStubs),
+      };
+
+      const client = new MatrixClient(allProps, { get: () => sessionStorage, clear: () => {} } as any);
+      await client.connect(sessionStorage.userId || 'stub-user-id', 'token');
+      return client;
+    };
+
+    it('disallows guest access', async () => {
+      const createRoom = jest.fn().mockResolvedValue({ room_id: 'new-room-id' });
+      const client = await subject({ createRoom });
+
+      await client.createUnencryptedConversation([{ userId: 'id', matrixId: '@somebody.else' }], null, null, null);
+
+      expect(createRoom).toHaveBeenCalledWith(
+        expect.objectContaining({
+          initial_state: expect.arrayContaining([
+            { type: 'm.room.guest_access', state_key: '', content: { guest_access: 'forbidden' } },
+          ]),
+        })
+      );
+    });
+
+    it('sets default channel settings (unencrypted)', async () => {
+      const createRoom = jest.fn().mockResolvedValue({ room_id: 'new-room-id' });
+      const client = await subject({ createRoom });
+
+      await client.createUnencryptedConversation([{ userId: 'id', matrixId: '@somebody.else' }], null, null, null);
+
+      expect(createRoom).toHaveBeenCalledWith(
+        expect.objectContaining({
+          preset: Preset.PrivateChat,
+          visibility: Visibility.Private,
+          is_direct: true,
+        })
+      );
+    });
+
+    it('sets the appropriate default power_levels in group channel', async () => {
+      const createRoom = jest.fn().mockResolvedValue({ room_id: 'new-room-id' });
+      const client = await subject({ createRoom }, { userId: '@this.user' });
+
+      await client.createUnencryptedConversation(
+        [
+          { userId: 'id-1', matrixId: '@first.user' },
+          { userId: 'id-2', matrixId: '@second.user' },
+        ],
+        null,
+        null,
+        null
+      );
+
+      expect(createRoom).toHaveBeenCalledWith(
+        expect.objectContaining({
+          power_level_content_override: {
+            users: {
+              '@this.user': 100, // the user who created the room
+            },
+            invite: PowerLevels.Moderator,
+            kick: PowerLevels.Moderator,
+            redact: PowerLevels.Owner,
+            ban: PowerLevels.Owner,
+            users_default: PowerLevels.Viewer,
+          },
+        })
+      );
+    });
+
+    it('invites the users after createRoom', async () => {
+      const createRoom = jest.fn().mockResolvedValue({ room_id: 'new-room-id' });
+      const invite = jest.fn().mockResolvedValue({});
+      const users = [
+        { userId: 'id-1', matrixId: '@first.user' },
+        { userId: 'id-2', matrixId: '@second.user' },
+      ];
+      const client = await subject({ createRoom, invite });
+
+      await client.createUnencryptedConversation(users, null, null, null);
+
+      expect(createRoom).toHaveBeenCalledWith(expect.objectContaining({ invite: [] }));
+      expect(invite).toHaveBeenCalledWith('new-room-id', '@first.user');
+      expect(invite).toHaveBeenCalledWith('new-room-id', '@second.user');
+    });
+
+    it('sets the conversation as a Matrix direct message', async () => {
+      const createRoom = jest.fn().mockResolvedValue({ room_id: 'test-room' });
+      const users = [{ userId: 'id-1', matrixId: '@first.user' }];
+      const client = await subject({ createRoom });
+
+      await client.createUnencryptedConversation(users, null, null, null);
+
+      expect(setAsDM).toHaveBeenCalledWith(expect.anything(), 'test-room', '@first.user');
+    });
+
+    it('sets the channel name', async () => {
+      const createRoom = jest.fn().mockResolvedValue({ room_id: 'new-room-id' });
+      const client = await subject({ createRoom });
+
+      await client.createUnencryptedConversation(
+        [{ userId: 'id', matrixId: '@somebody.else' }],
+        'channel-name',
+        null,
+        null
+      );
+
+      expect(createRoom).toHaveBeenCalledWith(expect.objectContaining({ name: 'channel-name' }));
+    });
+
+    it('uploads the image', async () => {
+      const createRoom = jest.fn().mockResolvedValue({ room_id: 'new-room-id' });
+      const uploadContent = jest.fn().mockResolvedValue({ content_uri: 'upload-url' });
+      const mxcUrlToHttp = jest.fn().mockReturnValue('upload-url');
+
+      const client = await subject({ createRoom, uploadContent, mxcUrlToHttp });
+
+      await client.createUnencryptedConversation(
         [{ userId: 'id', matrixId: '@somebody.else' }],
         null,
         { name: 'test file' } as File,
@@ -502,6 +637,67 @@ describe('matrix client', () => {
     });
   });
 
+  describe('sendPostsByChannelId', () => {
+    it('sends a post message successfully', async () => {
+      const sendEvent = jest.fn().mockResolvedValue({ event_id: '$80dh3P6kQKgA0IIrdkw5AW0vSXXcRMT2PPIGVg9nEvU' });
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ sendEvent })) });
+
+      await client.connect(null, 'token');
+
+      const result = await client.sendPostsByChannelId('channel-id', 'post-message');
+
+      expect(result).toMatchObject({ id: '$80dh3P6kQKgA0IIrdkw5AW0vSXXcRMT2PPIGVg9nEvU' });
+    });
+  });
+
+  describe('sendMeowReactionEvent', () => {
+    it('sends a meow reaction event successfully', async () => {
+      const fixedTimestamp = 1727441803628;
+      jest.spyOn(Date, 'now').mockReturnValue(fixedTimestamp);
+
+      const sendEvent = jest.fn().mockResolvedValue({});
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ sendEvent })) });
+
+      await client.connect(null, 'token');
+      await client.sendMeowReactionEvent('channel-id', 'post-message-id', 'post-owner-id', 10);
+
+      expect(sendEvent).toHaveBeenCalledWith('channel-id', MatrixConstants.REACTION, {
+        'm.relates_to': {
+          rel_type: MatrixConstants.ANNOTATION,
+          event_id: 'post-message-id',
+          key: `${ReactionKeys.MEOW}_${fixedTimestamp}`,
+        },
+        amount: 10,
+        postOwnerId: 'post-owner-id',
+      });
+
+      jest.restoreAllMocks();
+    });
+  });
+
+  describe('sendEmojiReactionEvent', () => {
+    it('sends a emoji reaction event successfully', async () => {
+      const fixedTimestamp = 1727441803628;
+      jest.spyOn(Date, 'now').mockReturnValue(fixedTimestamp);
+
+      const sendEvent = jest.fn().mockResolvedValue({});
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ sendEvent })) });
+
+      await client.connect(null, 'token');
+      await client.sendEmojiReactionEvent('channel-id', 'message-id', '😂');
+
+      expect(sendEvent).toHaveBeenCalledWith('channel-id', MatrixConstants.REACTION, {
+        'm.relates_to': {
+          rel_type: MatrixConstants.ANNOTATION,
+          event_id: 'message-id',
+          key: '😂',
+        },
+      });
+
+      jest.restoreAllMocks();
+    });
+  });
+
   describe('deleteMessageByRoomId', () => {
     it('deletes a message by room ID and message ID', async () => {
       const messageId = '123456';
@@ -550,6 +746,43 @@ describe('matrix client', () => {
       expect(fetchedMessages[0].message).toEqual('message 2');
     });
 
+    it('filters out post messages', async () => {
+      const getUser = jest.fn().mockReturnValue({ displayName: 'Mock User' });
+      const getEvents = jest.fn().mockReturnValue([
+        {
+          getEffectiveEvent: () => ({
+            type: 'm.room.message',
+            content: { body: 'message 1', msgtype: 'm.text' },
+            event_id: 'message-id-1',
+          }),
+        },
+        {
+          getEffectiveEvent: () => ({
+            type: 'm.room.post',
+            content: { body: 'post message 1', msgtype: 'm.text' },
+            event_id: 'post-message-id-1',
+          }),
+        },
+        {
+          getEffectiveEvent: () => ({
+            type: 'm.room.message',
+            content: { body: 'message 2', msgtype: 'm.text' },
+            event_id: 'message-id-2',
+          }),
+        },
+      ]);
+      const getRoom = jest.fn().mockReturnValue(stubRoom({ getLiveTimeline: () => stubTimeline({ getEvents }) }));
+
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ getUser, getRoom })) });
+
+      await client.connect(null, 'token');
+      const { messages: fetchedMessages } = await client.getMessagesByChannelId('channel-id');
+
+      expect(fetchedMessages).toHaveLength(2);
+      expect(fetchedMessages[0].message).toEqual('message 1');
+      expect(fetchedMessages[1].message).toEqual('message 2');
+    });
+
     it('fetches messages successfully', async () => {
       const getUser = jest.fn().mockReturnValue({ displayName: 'Mock User' });
       const getEvents = jest.fn().mockReturnValue([
@@ -595,6 +828,93 @@ describe('matrix client', () => {
 
       await client.connect(null, 'token');
       const { messages: fetchedMessages } = await client.getMessagesByChannelId('channel-id');
+
+      expect(fetchedMessages).toHaveLength(0);
+    });
+  });
+
+  describe('getPostMessagesByChannelId', () => {
+    it('fetches post messages successfully', async () => {
+      const getUser = jest.fn().mockReturnValue({ displayName: 'Mock User' });
+      const getEvents = jest.fn().mockReturnValue([
+        {
+          getEffectiveEvent: () => ({
+            type: 'm.room.post',
+            content: { body: 'post message 1', msgtype: 'm.text' },
+            event_id: 'post-message-id-1',
+          }),
+        },
+        {
+          getEffectiveEvent: () => ({
+            type: 'm.room.post',
+            content: { body: 'post message 2', msgtype: 'm.text' },
+            event_id: 'post-message-id-2',
+          }),
+        },
+        {
+          getEffectiveEvent: () => ({
+            type: 'm.room.post',
+            content: { body: 'post message 3', msgtype: 'm.text' },
+            event_id: 'post-message-id-3',
+          }),
+        },
+      ]);
+      const getRoom = jest.fn().mockReturnValue(stubRoom({ getLiveTimeline: () => stubTimeline({ getEvents }) }));
+
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ getUser, getRoom })) });
+
+      await client.connect(null, 'token');
+      const { postMessages: fetchedPostMessages } = await client.getPostMessagesByChannelId('channel-id');
+
+      expect(fetchedPostMessages).toHaveLength(3);
+    });
+
+    it('filters out regular chat messages', async () => {
+      const getUser = jest.fn().mockReturnValue({ displayName: 'Mock User' });
+      const getEvents = jest.fn().mockReturnValue([
+        {
+          getEffectiveEvent: () => ({
+            type: 'm.room.message',
+            content: { body: 'message 1', msgtype: 'm.text' },
+            event_id: 'message-id-1',
+          }),
+        },
+        {
+          getEffectiveEvent: () => ({
+            type: 'm.room.post',
+            content: { body: 'post message 1', msgtype: 'm.text' },
+            event_id: 'post-message-id-1',
+          }),
+        },
+        {
+          getEffectiveEvent: () => ({
+            type: 'm.room.message',
+            content: { body: 'message 2', msgtype: 'm.text' },
+            event_id: 'message-id-2',
+          }),
+        },
+      ]);
+      const getRoom = jest.fn().mockReturnValue(stubRoom({ getLiveTimeline: () => stubTimeline({ getEvents }) }));
+
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ getUser, getRoom })) });
+
+      await client.connect(null, 'token');
+      const { postMessages: fetchedPostMessages } = await client.getPostMessagesByChannelId('channel-id');
+
+      expect(fetchedPostMessages).toHaveLength(1);
+      expect(fetchedPostMessages[0].message).toEqual('post message 1');
+    });
+
+    it('returns an empty array if no messages are found', async () => {
+      const getUser = jest.fn().mockReturnValue({ displayName: 'Mock User' });
+      const createPostMessagesRequest = jest.fn().mockResolvedValue({ chunk: [] });
+
+      const client = subject({
+        createClient: jest.fn(() => getSdkClient({ createPostMessagesRequest, getUser })),
+      });
+
+      await client.connect(null, 'token');
+      const { postMessages: fetchedMessages } = await client.getPostMessagesByChannelId('channel-id');
 
       expect(fetchedMessages).toHaveLength(0);
     });
@@ -652,25 +972,7 @@ describe('matrix client', () => {
   });
 
   describe('uploadFileMessage', () => {
-    it('logs warning if room is not encrypted and returns ', async () => {
-      const roomId = '!testRoomId';
-      const optimisticId = 'optimistic-id';
-      const rootMessageId = 'root-message-id';
-
-      const isRoomEncrypted = jest.fn(() => false);
-
-      const client = subject({
-        createClient: jest.fn(() => getSdkClient({ isRoomEncrypted })),
-      });
-
-      await client.connect(null, 'token');
-      client.uploadFileMessage(roomId, {} as File, rootMessageId, optimisticId);
-
-      expect(mockEncryptFile).not.toHaveBeenCalled();
-    });
-
-    it('sends a file message successfully', async () => {
-      // const originalMessageId = 'orig-message-id';
+    it('does not encrypt and sends a file message successfully in a non-encrypted room', async () => {
       const roomId = '!testRoomId';
       const optimisticId = 'optimistic-id';
       const rootMessageId = 'root-message-id';
@@ -679,6 +981,75 @@ describe('matrix client', () => {
         size: 1000,
         type: 'image/png',
       };
+
+      when(mockGetImageDimensions).calledWith(expect.anything()).mockResolvedValue({ width: 800, height: 600 });
+      when(mockGenerateBlurhash).calledWith(expect.anything()).mockResolvedValue('blurhash-string');
+
+      const sendMessage = jest.fn(() =>
+        Promise.resolve({
+          event_id: 'new-message-id',
+        })
+      );
+
+      const uploadContent = jest.fn().mockResolvedValue({ content_uri: 'upload-url' });
+      const mxcUrlToHttp = jest.fn().mockReturnValue('upload-url');
+
+      const client = subject({
+        createClient: jest.fn(() =>
+          getSdkClient({
+            getRoom: jest.fn().mockReturnValue(stubRoom({ hasEncryptionStateEvent: jest.fn(() => false) })),
+            sendMessage,
+            uploadContent,
+            mxcUrlToHttp,
+          })
+        ),
+      });
+
+      await client.connect(null, 'token');
+      const result = await client.uploadFileMessage(roomId, media as File, rootMessageId, optimisticId);
+
+      expect(sendMessage).toBeCalledWith(
+        roomId,
+        expect.objectContaining({
+          body: '',
+          msgtype: 'm.image',
+          url: 'upload-url',
+          info: {
+            mimetype: 'image/png',
+            size: 1000,
+            name: 'test-file',
+            optimisticId: 'optimistic-id',
+            rootMessageId: 'root-message-id',
+            width: 800,
+            height: 600,
+            w: 800,
+            h: 600,
+            'xyz.amorgan.blurhash': 'blurhash-string',
+            thumbnail_url: null,
+            thumbnail_info: null,
+          },
+          optimisticId: 'optimistic-id',
+        })
+      );
+
+      expect(result).toMatchObject({
+        id: 'new-message-id',
+        optimisticId: optimisticId,
+      });
+    });
+
+    it('encrypts and sends a file message successfully in an encrypted room', async () => {
+      const roomId = '!testRoomId';
+      const optimisticId = 'optimistic-id';
+      const rootMessageId = 'root-message-id';
+      const media = {
+        name: 'test-file',
+        size: 1000,
+        type: 'image/png',
+      };
+
+      when(mockGetImageDimensions).calledWith(expect.anything()).mockResolvedValue({ width: 800, height: 600 });
+      when(mockGenerateBlurhash).calledWith(expect.anything()).mockResolvedValue('blurhash-string');
 
       when(mockEncryptFile)
         .calledWith(expect.anything())
@@ -692,21 +1063,22 @@ describe('matrix client', () => {
           },
         });
 
-      when(mockUploadAttachment).calledWith(expect.anything()).mockResolvedValue({
-        name: 'test-file',
-        key: 'attachments/../test.jpg',
-        url: 'attachments/../test.jpg',
-        type: 'file',
-      });
-
       const sendMessage = jest.fn(() =>
         Promise.resolve({
           event_id: 'new-message-id',
         })
       );
 
+      const uploadContent = jest.fn().mockResolvedValue({ content_uri: 'upload-url' });
+
       const client = subject({
-        createClient: jest.fn(() => getSdkClient({ sendMessage })),
+        createClient: jest.fn(() =>
+          getSdkClient({
+            getRoom: jest.fn().mockReturnValue(stubRoom({ hasEncryptionStateEvent: jest.fn(() => true) })),
+            sendMessage,
+            uploadContent,
+          })
+        ),
       });
 
       await client.connect(null, 'token');
@@ -715,10 +1087,10 @@ describe('matrix client', () => {
       expect(sendMessage).toBeCalledWith(
         roomId,
         expect.objectContaining({
-          body: null,
+          body: '',
           msgtype: 'm.image',
           file: {
-            url: 'attachments/../test.jpg',
+            url: 'upload-url',
             hashes: { sha256: 'wfewfe' },
             iv: 'XH0bn67qTPsAAAAAAAAAAA',
             key: {},
@@ -730,6 +1102,67 @@ describe('matrix client', () => {
             name: 'test-file',
             optimisticId: 'optimistic-id',
             rootMessageId: 'root-message-id',
+            width: 800,
+            height: 600,
+            w: 800,
+            h: 600,
+            'xyz.amorgan.blurhash': 'blurhash-string',
+            thumbnail_url: null,
+            thumbnail_info: null,
+          },
+          optimisticId: 'optimistic-id',
+        })
+      );
+
+      expect(result).toMatchObject({
+        id: 'new-message-id',
+        optimisticId: optimisticId,
+      });
+    });
+
+    it('sends a video message successfully in a non-encrypted room', async () => {
+      const roomId = '!testRoomId';
+      const optimisticId = 'optimistic-id';
+      const rootMessageId = 'root-message-id';
+      const media = { name: 'test-video.mp4', size: 1000, type: 'video/mp4' };
+
+      const sendMessage = jest.fn(() =>
+        Promise.resolve({
+          event_id: 'new-message-id',
+        })
+      );
+
+      const uploadContent = jest.fn().mockResolvedValue({ content_uri: 'upload-url' });
+      const mxcUrlToHttp = jest.fn().mockReturnValue('upload-url');
+
+      const client = subject({
+        createClient: jest.fn(() =>
+          getSdkClient({
+            getRoom: jest.fn().mockReturnValue(stubRoom({ hasEncryptionStateEvent: jest.fn(() => false) })),
+            sendMessage,
+            uploadContent,
+            mxcUrlToHttp,
+          })
+        ),
+      });
+
+      await client.connect(null, 'token');
+      const result = await client.uploadFileMessage(roomId, media as File, rootMessageId, optimisticId);
+
+      expect(sendMessage).toBeCalledWith(
+        roomId,
+        expect.objectContaining({
+          body: '',
+          msgtype: 'm.video',
+          url: 'upload-url',
+          info: {
+            mimetype: 'video/mp4',
+            size: 1000,
+            name: 'test-video.mp4',
+            optimisticId: 'optimistic-id',
+            rootMessageId: 'root-message-id',
+            thumbnail_url: null,
+            thumbnail_info: null,
           },
           optimisticId: 'optimistic-id',
         })
@@ -743,21 +1176,56 @@ describe('matrix client', () => {
   });
 
   describe('uploadImageUrl', () => {
-    it('logs warning if room is not encrypted and returns ', async () => {
+    it('sends an image URL message successfully in a non-encrypted room', async () => {
       const roomId = '!testRoomId';
+      const url = 'http://example.com/image.gif';
+      const width = 500;
+      const height = 300;
+      const size = 1500;
       const optimisticId = 'optimistic-id';
       const rootMessageId = 'root-message-id';
 
-      const isRoomEncrypted = jest.fn(() => false);
+      const sendMessage = jest.fn(() =>
+        Promise.resolve({
+          event_id: 'new-message-id',
+        })
+      );
 
       const client = subject({
-        createClient: jest.fn(() => getSdkClient({ isRoomEncrypted })),
+        createClient: jest.fn(() =>
+          getSdkClient({
+            getRoom: jest.fn().mockReturnValue(stubRoom({ hasEncryptionStateEvent: jest.fn(() => false) })),
+            sendMessage,
+          })
+        ),
       });
 
       await client.connect(null, 'token');
-      await client.uploadImageUrl(roomId, 'http://example.com/image.gif', 500, 300, 1500, rootMessageId, optimisticId);
 
-      expect(mockEncryptFile).not.toHaveBeenCalled();
+      const result = await client.uploadImageUrl(roomId, url, width, height, size, rootMessageId, optimisticId);
+
+      expect(sendMessage).toBeCalledWith(
+        roomId,
+        expect.objectContaining({
+          body: '',
+          msgtype: 'm.image',
+          url: url,
+          info: {
+            mimetype: 'image/gif',
+            w: width,
+            h: height,
+            size: size,
+            optimisticId,
+            rootMessageId,
+          },
+          optimisticId,
+        })
+      );
+
+      expect(result).toMatchObject({
+        id: 'new-message-id',
+        optimisticId,
+      });
     });
 
     it('sends an image URL message successfully in an encrypted room', async () => {
@@ -776,7 +1244,12 @@ describe('matrix client', () => {
       );
 
       const client = subject({
-        createClient: jest.fn(() => getSdkClient({ sendMessage })),
+        createClient: jest.fn(() =>
+          getSdkClient({
+            getRoom: jest.fn().mockReturnValue(stubRoom({ hasEncryptionStateEvent: jest.fn(() => true) })),
+            sendMessage,
+          })
+        ),
       });
 
       await client.connect(null, 'token');
@@ -808,6 +1281,51 @@ describe('matrix client', () => {
     });
   });
 
+  describe('uploadFile', () => {
+    it('uploads a file successfully', async () => {
+      const file: any = { name: 'some-file', type: 'text/plain' };
+
+      const uploadContent = jest.fn(() =>
+        Promise.resolve({
+          content_uri: 'mxc://content-url',
+        })
+      );
+
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ uploadContent })) });
+
+      await client.connect(null, 'token');
+      const result = await client.uploadFile(file);
+
+      expect(uploadContent).toHaveBeenCalledWith(file, {
+        name: file.name,
+        type: file.type,
+        includeFilename: false,
+      });
+
+      expect(result).toBe('mxc://content-url');
+    });
+  });
+
+  describe('downloadFile', () => {
+    it('returns null if the fileUrl is null', async () => {
+      const fileUrl = null;
+      const client = subject({ createClient: jest.fn(() => getSdkClient({})) });
+      await client.connect(null, 'token');
+      const result = await client.downloadFile(fileUrl);
+
+      expect(result).toBeNull();
+    });
+
+    it('returns the file url if it is not uploaded the homeserver', async () => {
+      const fileUrl = 'http://aws-s3-bucket-1.com/file.txt';
+      const client = subject({ createClient: jest.fn(() => getSdkClient({})) });
+      await client.connect(null, 'token');
+      const result = await client.downloadFile(fileUrl);
+
+      expect(result).toBe(fileUrl);
+    });
+  });
+
   describe('setReadReceiptPreference', () => {
     it('sets read receipt preference successfully', async () => {
       const setAccountData = jest.fn().mockResolvedValue(undefined);
@@ -817,10 +1335,10 @@ describe('matrix client', () => {
       });
 
       await client.connect(null, 'token');
-      await client.setReadReceiptPreference(ReadReceiptPreferenceType.Private);
+      await client.setReadReceiptPreference(ReadReceiptPreferenceType.Public);
 
       expect(setAccountData).toHaveBeenCalledWith(MatrixConstants.READ_RECEIPT_PREFERENCE, {
-        readReceipts: ReadReceiptPreferenceType.Private,
+        readReceipts: ReadReceiptPreferenceType.Public,
       });
     });
   });
@@ -830,7 +1348,7 @@ describe('matrix client', () => {
       const setAccountData = jest.fn().mockResolvedValue(undefined);
 
       const getAccountData = jest.fn().mockResolvedValue({
-        event: { content: { readReceipts: ReadReceiptPreferenceType.Private } },
+        event: { content: { readReceipts: ReadReceiptPreferenceType.Public } },
       });
 
       const client = subject({
@@ -838,14 +1356,14 @@ describe('matrix client', () => {
       });
 
       await client.connect(null, 'token');
-      await client.setReadReceiptPreference(ReadReceiptPreferenceType.Private);
+      await client.setReadReceiptPreference(ReadReceiptPreferenceType.Public);
 
       const preference = await client.getReadReceiptPreference();
       expect(getAccountData).toHaveBeenCalledWith(MatrixConstants.READ_RECEIPT_PREFERENCE);
-      expect(preference).toBe(ReadReceiptPreferenceType.Private);
+      expect(preference).toBe(ReadReceiptPreferenceType.Public);
     });
 
-    it('returns default public preference on error', async () => {
+    it('returns default private preference on error', async () => {
       const getAccountData = jest.fn().mockRejectedValue({});
 
       const client = subject({
@@ -863,26 +1381,23 @@ describe('matrix client', () => {
       console.error = originalConsoleError;
 
       expect(getAccountData).toHaveBeenCalledWith(MatrixConstants.READ_RECEIPT_PREFERENCE);
-      expect(preference).toBe(ReadReceiptPreferenceType.Public);
+      expect(preference).toBe(ReadReceiptPreferenceType.Private);
     });
 
-    it('returns default public preference if not set', async () => {
-      const setAccountData = jest.fn().mockResolvedValue(undefined);
-
+    it('returns default private preference if not set', async () => {
       const getAccountData = jest.fn().mockResolvedValue({
         event: { content: {} },
       });
 
       const client = subject({
-        createClient: jest.fn(() => getSdkClient({ setAccountData, getAccountData })),
+        createClient: jest.fn(() => getSdkClient({ getAccountData })),
       });
 
       await client.connect(null, 'token');
-      await client.setReadReceiptPreference(ReadReceiptPreferenceType.Private);
       const preference = await client.getReadReceiptPreference();
 
       expect(getAccountData).toHaveBeenCalledWith(MatrixConstants.READ_RECEIPT_PREFERENCE);
-      expect(preference).toBe(ReadReceiptPreferenceType.Public);
+      expect(preference).toBe(ReadReceiptPreferenceType.Private);
     });
   });
 
@@ -961,38 +1476,6 @@ describe('matrix client', () => {
 
   describe('markRoomAsRead', () => {
     it('marks room as read successfully', async () => {
-      featureFlags.enableReadReceiptPreferences = true;
-
-      const roomId = '!testRoomId';
-      const latestEventId = 'latest-event-id';
-      const latestEvent = {
-        event: { event_id: latestEventId },
-      };
-
-      const sendReadReceipt = jest.fn().mockResolvedValue(undefined);
-      const setRoomReadMarkers = jest.fn().mockResolvedValue(undefined);
-      const getLiveTimelineEvents = jest.fn().mockReturnValue([latestEvent]);
-      const getRoom = jest.fn().mockReturnValue(
-        stubRoom({
-          getLiveTimeline: jest.fn().mockReturnValue(stubTimeline({ getEvents: getLiveTimelineEvents })),
-        })
-      );
-
-      const client = subject({
-        createClient: jest.fn(() => getSdkClient({ sendReadReceipt, setRoomReadMarkers, getRoom })),
-      });
-
-      await client.connect(null, 'token');
-      await client.markRoomAsRead(roomId);
-
-      expect(sendReadReceipt).toHaveBeenCalledWith(latestEvent, ReceiptType.Read);
-      expect(setRoomReadMarkers).toHaveBeenCalledWith(roomId, latestEventId);
-    });
-
-    // temporary test
-    it('read receipt is private if feature flag is not enabled', async () => {
-      featureFlags.enableReadReceiptPreferences = false;
-
       const roomId = '!testRoomId';
       const latestEventId = 'latest-event-id';
       const latestEvent = {
@@ -1016,6 +1499,127 @@ describe('matrix client', () => {
       await client.markRoomAsRead(roomId);
 
       expect(sendReadReceipt).toHaveBeenCalledWith(latestEvent, ReceiptType.ReadPrivate);
+      expect(setRoomReadMarkers).toHaveBeenCalledWith(roomId, latestEventId);
+    });
+  });
+
+  describe('processSendReadReceipt', () => {
+    let client;
+    let room;
+    let latestEvent;
+    let sendReadReceipt;
+    let getRoom;
+    let getLiveTimelineEvents;
+
+    beforeEach(async () => {
+      const latestEventId = 'latest-event-id';
+
+      latestEvent = {
+        event: {
+          event_id: latestEventId,
+          content: {},
+        },
+      };
+
+      sendReadReceipt = jest.fn().mockResolvedValue(undefined);
+      getLiveTimelineEvents = jest.fn().mockReturnValue([latestEvent]);
+      room = stubRoom({
+        getLiveTimeline: jest.fn().mockReturnValue(stubTimeline({ getEvents: getLiveTimelineEvents })),
+        findEventById: jest.fn(),
+      });
+
+      getRoom = jest.fn().mockReturnValue(room);
+
+      client = subject({
+        createClient: jest.fn(() => getSdkClient({ sendReadReceipt, getRoom })),
+      });
+
+      await client.connect(null, 'token');
+    });
+
+    it('sends read receipt for non-edited event', async () => {
+      await client.processSendReadReceipt(room, latestEvent, ReceiptType.ReadPrivate);
+
+      expect(sendReadReceipt).toHaveBeenCalledWith(latestEvent, ReceiptType.ReadPrivate);
+    });
+
+    it('sends read receipt for original event if latest event is an edit', async () => {
+      const originalEventId = 'original-event-id';
+      const originalEvent = { event_id: originalEventId };
+      latestEvent.event.content['m.relates_to'] = {
+        rel_type: 'm.replace',
+        event_id: originalEventId,
+      };
+      room.findEventById.mockReturnValue(originalEvent);
+
+      await client.processSendReadReceipt(room, latestEvent, ReceiptType.ReadPrivate);
+
+      expect(room.findEventById).toHaveBeenCalledWith(originalEventId);
+      expect(sendReadReceipt).toHaveBeenCalledWith(originalEvent, ReceiptType.ReadPrivate);
+    });
+
+    it('sends read receipt for latest event if original event is not found', async () => {
+      latestEvent.event.content['m.relates_to'] = {
+        rel_type: 'm.replace',
+        event_id: 'non-existent-event-id',
+      };
+      room.findEventById.mockReturnValue(null);
+
+      await client.processSendReadReceipt(room, latestEvent, ReceiptType.ReadPrivate);
+
+      expect(sendReadReceipt).toHaveBeenCalledWith(latestEvent, ReceiptType.ReadPrivate);
+    });
+  });
+
+  describe('getAliasForRoomId', () => {
+    it('returns alias for room ID', async () => {
+      const aliases = { aliases: ['#test-room:zos-dev.zero.io'] };
+      const getLocalAliases = jest.fn().mockResolvedValue(aliases);
+
+      const client = subject({
+        createClient: jest.fn(() => getSdkClient({ getLocalAliases })),
+      });
+
+      await client.connect(null, 'token');
+      const result = await client.getAliasForRoomId('!heExvpcoNDAMAPMsRd:zos-dev.zero.io');
+
+      expect(result).toEqual('test-room');
+    });
+
+    it('returns undefined if room has no aliases', async () => {
+      const getLocalAliases = jest.fn().mockResolvedValue({ aliases: [] });
+      const client = subject({
+        createClient: jest.fn(() => getSdkClient({ getLocalAliases })),
+      });
+
+      await client.connect(null, 'token');
+      const result = await client.getAliasForRoomId('!heExvpcoNDAMAPMsRd:zos-dev.zero.io');
+
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined if forbidden to access room (M_FORBIDDEN)', async () => {
+      const getLocalAliases = jest.fn().mockRejectedValue({ errcode: 'M_FORBIDDEN' });
+      const client = subject({
+        createClient: jest.fn(() => getSdkClient({ getLocalAliases })),
+      });
+
+      await client.connect(null, 'token');
+      const result = await client.getAliasForRoomId('!heExvpcoNDAMAPMsRd:zos-dev.zero.io');
+
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined if room is unknown (M_UNKNOWN)', async () => {
+      const getLocalAliases = jest.fn().mockRejectedValue({ errcode: 'M_UNKNOWN' });
+      const client = subject({
+        createClient: jest.fn(() => getSdkClient({ getLocalAliases })),
+      });
+
+      await client.connect(null, 'token');
+      const result = await client.getAliasForRoomId('!heExvpcoNDAMAPMsRd:zos-dev.zero.io');
+
+      expect(result).toBeUndefined();
     });
   });
 
@@ -1047,9 +1651,8 @@ describe('matrix client', () => {
     });
   });
 
-  describe('addRoomToFavorites', () => {
-    it('sets room tag with "m.favorite"', async () => {
-      const roomId = '!testRoomId';
+  describe('addRoomToLabel', () => {
+    it('sets room tag with the specified label', async () => {
       const setRoomTag = jest.fn().mockResolvedValue({});
 
       const client = subject({
@@ -1057,15 +1660,14 @@ describe('matrix client', () => {
       });
 
       await client.connect(null, 'token');
-      await client.addRoomToFavorites(roomId);
+      await client.addRoomToLabel('channel-id', DefaultRoomLabels.WORK);
 
-      expect(setRoomTag).toHaveBeenCalledWith(roomId, 'm.favorite');
+      expect(setRoomTag).toHaveBeenCalledWith('channel-id', DefaultRoomLabels.WORK);
     });
   });
 
-  describe('removeRoomFromFavorites', () => {
-    it('deletes "m.favorite" tag from room', async () => {
-      const roomId = '!testRoomId';
+  describe('removeRoomFromLabel', () => {
+    it('deletes the specified label tag from room', async () => {
       const deleteRoomTag = jest.fn().mockResolvedValue({});
 
       const client = subject({
@@ -1073,47 +1675,298 @@ describe('matrix client', () => {
       });
 
       await client.connect(null, 'token');
-      await client.removeRoomFromFavorites(roomId);
+      await client.removeRoomFromLabel('channel-id', DefaultRoomLabels.WORK);
 
-      expect(deleteRoomTag).toHaveBeenCalledWith(roomId, 'm.favorite');
+      expect(deleteRoomTag).toHaveBeenCalledWith('channel-id', DefaultRoomLabels.WORK);
     });
   });
 
-  describe('isRoomFavorited', () => {
-    it('returns true if "m.favorite" tag is present for room', async () => {
-      const roomId = '!testRoomId';
-      const getRoomTags = jest.fn().mockResolvedValue({
-        tags: {
-          'm.favorite': {},
+  describe('getRoomTags', () => {
+    it('returns correct tags for all rooms', async () => {
+      const conversations = [
+        { id: 'room1', labels: [] },
+        { id: 'room2', labels: [] },
+      ];
+
+      const getRoomTags = jest
+        .fn()
+        .mockResolvedValueOnce({ tags: { 'm.favorite': {}, 'm.mute': {}, 'm.work': {}, 'm.family': {} } })
+        .mockResolvedValueOnce({ tags: {} });
+
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ getRoomTags })) });
+
+      await client.connect(null, 'token');
+      await client.getRoomTags(conversations);
+
+      expect(getRoomTags).toHaveBeenCalledWith('room1');
+      expect(getRoomTags).toHaveBeenCalledWith('room2');
+      expect(conversations).toEqual([
+        {
+          id: 'room1',
+          labels: [
+            'm.favorite',
+            'm.mute',
+            'm.work',
+            'm.family',
+          ],
         },
+        { id: 'room2', labels: [] },
+      ]);
+    });
+  });
+
+  describe('getPostMessageReactions', () => {
+    it('returns the correct reactions for a room', async () => {
+      const mockGetRoom = jest.fn().mockReturnValue({
+        getLiveTimeline: jest.fn().mockReturnValue({
+          getEvents: jest.fn().mockReturnValue([
+            {
+              getType: () => MatrixConstants.REACTION,
+              getContent: () => ({
+                [MatrixConstants.RELATES_TO]: {
+                  event_id: 'message-1',
+                  key: ReactionKeys.MEOW,
+                },
+                amount: 5,
+              }),
+            },
+
+            {
+              getType: () => 'm.room.message',
+              getContent: () => ({
+                body: 'This is a regular message',
+              }),
+            },
+          ]),
+        }),
       });
 
-      const client = subject({
-        createClient: jest.fn(() => getSdkClient({ getRoomTags })),
-      });
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ getRoom: mockGetRoom })) });
 
       await client.connect(null, 'token');
-      const isFavorite = await client.isRoomFavorited(roomId);
+      const reactions = await client.getPostMessageReactions('room-id');
 
-      expect(getRoomTags).toHaveBeenCalledWith(roomId);
-      expect(isFavorite).toBe(true);
+      expect(mockGetRoom).toHaveBeenCalledWith('room-id');
+      expect(reactions).toEqual([
+        {
+          eventId: 'message-1',
+          key: ReactionKeys.MEOW,
+          amount: 5,
+        },
+      ]);
     });
 
-    it('returns false if "m.favorite" tag is not present for room', async () => {
-      const roomId = '!testRoomId';
-      const getRoomTags = jest.fn().mockResolvedValue({
-        tags: {},
-      });
+    it('returns an empty array if the room is not found', async () => {
+      const mockGetRoom = jest.fn().mockReturnValue(null);
 
-      const client = subject({
-        createClient: jest.fn(() => getSdkClient({ getRoomTags })),
-      });
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ getRoom: mockGetRoom })) });
 
       await client.connect(null, 'token');
-      const isFavorite = await client.isRoomFavorited(roomId);
+      const reactions = await client.getPostMessageReactions('room-id');
 
-      expect(getRoomTags).toHaveBeenCalledWith(roomId);
-      expect(isFavorite).toBe(false);
+      expect(mockGetRoom).toHaveBeenCalledWith('room-id');
+      expect(reactions).toEqual([]);
     });
+
+    it('returns an empty array if there are no reaction events', async () => {
+      const mockGetRoom = jest.fn().mockReturnValue({
+        getLiveTimeline: jest.fn().mockReturnValue({
+          getEvents: jest.fn().mockReturnValue([
+            {
+              getType: () => 'm.room.message', // No reaction events
+              getContent: () => ({
+                body: 'This is a regular message',
+              }),
+            },
+          ]),
+        }),
+      });
+
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ getRoom: mockGetRoom })) });
+
+      await client.connect(null, 'token');
+      const reactions = await client.getPostMessageReactions('room-id');
+
+      expect(mockGetRoom).toHaveBeenCalledWith('room-id');
+      expect(reactions).toEqual([]);
+    });
+  });
+
+  it('filters out invalid reaction events', async () => {
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const mockGetRoom = jest.fn().mockReturnValue({
+      getLiveTimeline: jest.fn().mockReturnValue({
+        getEvents: jest.fn().mockReturnValue([
+          {
+            getType: () => MatrixConstants.REACTION,
+            getContent: () => ({
+              // Missing the required RELATES_TO properties
+            }),
+          },
+          {
+            getType: () => MatrixConstants.REACTION,
+            getContent: () => ({
+              [MatrixConstants.RELATES_TO]: {
+                key: ReactionKeys.MEOW, // Missing event_id
+              },
+              amount: 5,
+            }),
+          },
+          {
+            getType: () => MatrixConstants.REACTION,
+            getContent: () => ({
+              [MatrixConstants.RELATES_TO]: {
+                event_id: 'message-2',
+                key: ReactionKeys.MEOW,
+              },
+              amount: 3,
+            }),
+          },
+        ]),
+      }),
+    });
+
+    const client = subject({ createClient: jest.fn(() => getSdkClient({ getRoom: mockGetRoom })) });
+
+    await client.connect(null, 'token');
+    const reactions = await client.getPostMessageReactions('room-id');
+
+    expect(mockGetRoom).toHaveBeenCalledWith('room-id');
+    expect(reactions).toEqual([
+      {
+        eventId: 'message-2',
+        key: ReactionKeys.MEOW,
+        amount: 3,
+      },
+    ]);
+
+    // Restore console.warn after the test
+    consoleWarnSpy.mockRestore();
+  });
+
+  describe('getMessageEmojiReactions', () => {
+    it('returns the correct reactions for a room', async () => {
+      const mockGetRoom = jest.fn().mockReturnValue({
+        getLiveTimeline: jest.fn().mockReturnValue({
+          getEvents: jest.fn().mockReturnValue([
+            {
+              getType: () => MatrixConstants.REACTION,
+              getContent: () => ({
+                [MatrixConstants.RELATES_TO]: {
+                  event_id: 'message-1',
+                  key: '😂',
+                },
+              }),
+            },
+
+            {
+              getType: () => 'm.room.message',
+              getContent: () => ({
+                body: 'This is a regular message',
+              }),
+            },
+          ]),
+        }),
+      });
+
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ getRoom: mockGetRoom })) });
+
+      await client.connect(null, 'token');
+      const reactions = await client.getMessageEmojiReactions('room-id');
+
+      expect(mockGetRoom).toHaveBeenCalledWith('room-id');
+      expect(reactions).toEqual([
+        {
+          eventId: 'message-1',
+          key: '😂',
+        },
+      ]);
+    });
+
+    it('returns an empty array if the room is not found', async () => {
+      const mockGetRoom = jest.fn().mockReturnValue(null);
+
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ getRoom: mockGetRoom })) });
+
+      await client.connect(null, 'token');
+      const reactions = await client.getMessageEmojiReactions('room-id');
+
+      expect(mockGetRoom).toHaveBeenCalledWith('room-id');
+      expect(reactions).toEqual([]);
+    });
+
+    it('returns an empty array if there are no reaction events', async () => {
+      const mockGetRoom = jest.fn().mockReturnValue({
+        getLiveTimeline: jest.fn().mockReturnValue({
+          getEvents: jest.fn().mockReturnValue([
+            {
+              getType: () => 'm.room.message', // No reaction events
+              getContent: () => ({
+                body: 'This is a regular message',
+              }),
+            },
+          ]),
+        }),
+      });
+
+      const client = subject({ createClient: jest.fn(() => getSdkClient({ getRoom: mockGetRoom })) });
+
+      await client.connect(null, 'token');
+      const reactions = await client.getMessageEmojiReactions('room-id');
+
+      expect(mockGetRoom).toHaveBeenCalledWith('room-id');
+      expect(reactions).toEqual([]);
+    });
+  });
+
+  it('filters out invalid reaction events', async () => {
+    const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const mockGetRoom = jest.fn().mockReturnValue({
+      getLiveTimeline: jest.fn().mockReturnValue({
+        getEvents: jest.fn().mockReturnValue([
+          {
+            getType: () => MatrixConstants.REACTION,
+            getContent: () => ({
+              // Missing the required RELATES_TO properties
+            }),
+          },
+          {
+            getType: () => MatrixConstants.REACTION,
+            getContent: () => ({
+              [MatrixConstants.RELATES_TO]: {
+                key: '😂', // Missing event_id
+              },
+            }),
+          },
+          {
+            getType: () => MatrixConstants.REACTION,
+            getContent: () => ({
+              [MatrixConstants.RELATES_TO]: {
+                event_id: 'message-2',
+                key: '😂',
+              },
+            }),
+          },
+        ]),
+      }),
+    });
+
+    const client = subject({ createClient: jest.fn(() => getSdkClient({ getRoom: mockGetRoom })) });
+
+    await client.connect(null, 'token');
+    const reactions = await client.getMessageEmojiReactions('room-id');
+
+    expect(mockGetRoom).toHaveBeenCalledWith('room-id');
+    expect(reactions).toEqual([
+      {
+        eventId: 'message-2',
+        key: '😂',
+      },
+    ]);
+
+    // Restore console.warn after the test
+    consoleWarnSpy.mockRestore();
   });
 });

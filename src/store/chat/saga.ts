@@ -19,10 +19,11 @@ import { receive } from '../users';
 import { chat, getRoomIdForAlias, isRoomMember } from '../../lib/chat';
 import { ConversationEvents, getConversationsBus } from '../channels-list/channels';
 import { getHistory } from '../../lib/browser';
-import { openFirstConversation } from '../channels/saga';
+import { markConversationAsRead, openFirstConversation, rawChannelSelector } from '../channels/saga';
 import { translateJoinRoomApiError, parseAlias, isAlias, extractDomainFromAlias } from './utils';
 import { joinRoom as apiJoinRoom } from './api';
 import { rawConversationsList } from '../channels-list/selectors';
+import { openSidekickForSocialChannel } from '../group-management/saga';
 
 function* initChat(userId, token) {
   const { chatConnection, connectionPromise, activate } = createChatConnection(userId, token, chat.get());
@@ -112,14 +113,18 @@ export function* setActiveConversation(id: string) {
 }
 
 export function* validateActiveConversation(conversationId: string) {
-  yield put(setIsJoiningConversation(true));
+  try {
+    yield put(clearJoinRoomErrorContent());
+    yield put(setIsJoiningConversation(true));
 
-  const isLoaded = yield call(waitForChatConnectionCompletion);
-  if (isLoaded) {
-    yield call(performValidateActiveConversation, conversationId);
+    const isLoaded = yield call(waitForChatConnectionCompletion);
+    if (isLoaded) {
+      yield call(performValidateActiveConversation, conversationId);
+      yield spawn(openSidekickForSocialChannel, conversationId);
+    }
+  } finally {
+    yield put(setIsJoiningConversation(false));
   }
-
-  yield put(setIsJoiningConversation(false));
 }
 
 export function* joinRoom(roomIdOrAlias: string) {
@@ -131,6 +136,7 @@ export function* joinRoom(roomIdOrAlias: string) {
     const error = translateJoinRoomApiError(response, domain);
 
     yield put(setJoinRoomErrorContent(error));
+    yield put(rawSetActiveConversationId(null));
   } else {
     yield put(clearJoinRoomErrorContent());
     yield call(setWhenUserJoinedRoom, response.roomId);
@@ -176,6 +182,10 @@ export function* setWhenUserJoinedRoom(conversationId: string) {
 }
 
 export function* performValidateActiveConversation(activeConversationId: string) {
+  const history = yield call(getHistory);
+  const currentPath = history.location.pathname;
+  const isMessengerApp = currentPath.startsWith('/conversation');
+
   if (!activeConversationId) {
     yield put(clearJoinRoomErrorContent());
     yield call(openFirstConversation);
@@ -188,12 +198,22 @@ export function* performValidateActiveConversation(activeConversationId: string)
     conversationId = yield call(getRoomIdForAlias, activeConversationId);
   }
 
+  const conversation = yield select(rawChannelSelector(conversationId));
+  if (conversation?.isSocialChannel && isMessengerApp) {
+    // If it's a social channel and accessed from messenger app, open the last active conversation instead
+    yield call(openFirstConversation);
+    return;
+  }
+
   if (!conversationId || !(yield call(isMemberOfActiveConversation, conversationId))) {
     yield call(joinRoom, activeConversationId);
     return;
   }
 
   yield put(rawSetActiveConversationId(conversationId));
+
+  // Mark conversation as read, now that it has been set as active
+  yield call(markConversationAsRead, conversationId);
 }
 
 export function* closeErrorDialog() {
@@ -206,6 +226,7 @@ export function* saga() {
   yield takeLatest(SagaActionTypes.setActiveConversationId, ({ payload }: any) =>
     validateActiveConversation(payload.id)
   );
+  yield takeLatest(SagaActionTypes.ValidateFeedChat, ({ payload }: any) => validateActiveConversation(payload.id));
 
   const authBus = yield call(getAuthChannel);
   yield takeEveryFromBus(authBus, AuthEvents.UserLogout, clearOnLogout);

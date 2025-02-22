@@ -1,13 +1,17 @@
 import React from 'react';
 import { shallow } from 'enzyme';
 import { Message } from '.';
-import { MediaType, MessageSendStatus } from '../../store/messages';
+import { MediaDownloadStatus, MediaType, MessageSendStatus } from '../../store/messages';
 import { LinkPreview } from '../link-preview';
 import { LinkPreviewType } from '../../lib/link-preview';
 import { MessageInput } from '../message-input/container';
 import { MessageMenu } from '../../platform-apps/channels/messages-menu';
 import { ContentHighlighter } from '../content-highlighter';
 import { ParentMessage } from './parent-message';
+import { IconAlertCircle } from '@zero-tech/zui/icons';
+import { Spinner } from '@zero-tech/zui/components/LoadingIndicator/Spinner';
+import AttachmentCards from '../../platform-apps/channels/attachment-cards';
+import { MessagesFetchState } from '../../store/channels';
 
 describe('message', () => {
   const sender = {
@@ -59,10 +63,169 @@ describe('message', () => {
     expect(wrapper.find('.message__block-audio audio source').prop('src')).toStrictEqual('https://image.com/audio.mp3');
   });
 
+  it('passes correct mime type to audio source', () => {
+    const wrapper = subject({
+      media: {
+        url: 'https://image.com/audio.m4a',
+        type: MediaType.Audio,
+        mimetype: 'audio/x-m4a',
+      },
+    });
+
+    expect(wrapper.find('.message__block-audio audio source').prop('type')).toStrictEqual('audio/x-m4a');
+  });
+
   it('renders message image', () => {
     const wrapper = subject({ media: { url: 'https://image.com/image.png', type: MediaType.Image } });
 
     expect(wrapper.find('.message__block-image').exists()).toBe(true);
+  });
+
+  it('renders placeholder if no media url and mimetype is not application', () => {
+    const loadAttachmentDetails = jest.fn();
+
+    const wrapper = subject({
+      loadAttachmentDetails,
+      media: { id: '1', url: null, type: MediaType.Image, mimetype: 'image/png' },
+    });
+
+    expect(wrapper.find('.message__placeholder-container').exists()).toBe(true);
+  });
+
+  it('renders placeholder if matrix media url and mimetype is not application', () => {
+    const loadAttachmentDetails = jest.fn();
+
+    const wrapper = subject({
+      loadAttachmentDetails,
+      media: { id: '1', url: 'mxc://some-test-matrix-url', type: MediaType.Image, mimetype: 'image/png' },
+    });
+
+    expect(wrapper.find('.message__placeholder-container').exists()).toBe(true);
+  });
+
+  it('renders attachment cards if mimetype is application and url is null', () => {
+    const loadAttachmentDetails = jest.fn();
+
+    const wrapper = subject({
+      loadAttachmentDetails,
+      media: { id: '1', url: null, type: MediaType.Image, mimetype: 'application/pdf' },
+    });
+
+    expect(wrapper.find(AttachmentCards).exists()).toBe(true);
+  });
+
+  it('renders failed alert icon if media download status is failed', () => {
+    const loadAttachmentDetails = jest.fn();
+
+    const wrapper = subject({
+      messageId: 'test-id',
+      loadAttachmentDetails,
+      media: { url: null, type: MediaType.Image, downloadStatus: MediaDownloadStatus.Failed },
+    });
+
+    expect(wrapper).toHaveElement(IconAlertCircle);
+  });
+
+  it('renders loading spinner if media download status is loading', () => {
+    const loadAttachmentDetails = jest.fn();
+
+    const wrapper = subject({
+      messageId: 'test-id',
+      loadAttachmentDetails,
+      media: { url: null, type: MediaType.Image, downloadStatus: MediaDownloadStatus.Loading },
+    });
+
+    expect(wrapper).toHaveElement(Spinner);
+  });
+
+  it('calls loadAttachmentDetails if no media url and messagesFetchStatus is success', () => {
+    const loadAttachmentDetails = jest.fn();
+
+    subject({
+      messageId: 'test-id',
+      loadAttachmentDetails,
+      media: { url: null, type: MediaType.Image },
+      messagesFetchStatus: MessagesFetchState.SUCCESS,
+    });
+
+    expect(loadAttachmentDetails).toHaveBeenCalled();
+  });
+
+  it('calls loadAttachmentDetails if url is a matrix media url and messagesFetchStatus is success', () => {
+    const loadAttachmentDetails = jest.fn();
+    subject({
+      messageId: 'test-id',
+      loadAttachmentDetails,
+      media: { url: 'mxc://some-test-matrix-url', type: MediaType.Image },
+      messagesFetchStatus: MessagesFetchState.SUCCESS,
+    });
+
+    expect(loadAttachmentDetails).toHaveBeenCalled();
+  });
+
+  it('does not call loadAttachmentDetails if messagesFetchStatus is not success', () => {
+    const loadAttachmentDetails = jest.fn();
+
+    subject({
+      messageId: 'test-id',
+      loadAttachmentDetails,
+      media: { url: null, type: MediaType.Image },
+      messagesFetchStatus: MessagesFetchState.FAILED,
+    });
+
+    expect(loadAttachmentDetails).not.toHaveBeenCalled();
+  });
+
+  it('does not call loadAttachmentDetails if url is defined and not a matrix media url', () => {
+    const loadAttachmentDetails = jest.fn();
+
+    subject({
+      messageId: 'test-id',
+      loadAttachmentDetails,
+      media: { url: 'some-test-url', type: MediaType.Image, downloadStatus: MediaDownloadStatus.Failed },
+      messagesFetchStatus: MessagesFetchState.SUCCESS,
+    });
+
+    expect(loadAttachmentDetails).not.toHaveBeenCalled();
+  });
+
+  it('does not call loadAttachmentDetails if media download status is failed', () => {
+    const loadAttachmentDetails = jest.fn();
+
+    subject({
+      messageId: 'test-id',
+      loadAttachmentDetails,
+      media: { url: null, type: MediaType.Image, downloadStatus: MediaDownloadStatus.Failed },
+      messagesFetchStatus: MessagesFetchState.SUCCESS,
+    });
+
+    expect(loadAttachmentDetails).not.toHaveBeenCalled();
+  });
+
+  it('does not call loadAttachmentDetails if media download status is loading', () => {
+    const loadAttachmentDetails = jest.fn();
+
+    subject({
+      messageId: 'test-id',
+      loadAttachmentDetails,
+      media: { url: null, type: MediaType.Image, downloadStatus: MediaDownloadStatus.Loading },
+      messagesFetchStatus: MessagesFetchState.SUCCESS,
+    });
+
+    expect(loadAttachmentDetails).not.toHaveBeenCalled();
+  });
+
+  it('calculates and applies correct dimensions for the placeholder', () => {
+    const loadAttachmentDetails = jest.fn();
+    const media = { id: '1', url: null, width: 1200, height: 1200, type: MediaType.Image };
+    const maxWidthConstraint = 520;
+    const aspectRatioAdjustedHeight = 520;
+
+    const wrapper = subject({ loadAttachmentDetails, media });
+
+    const placeholderContainer = wrapper.find('.message__placeholder-container');
+
+    expect(placeholderContainer).toHaveProp('style', { width: maxWidthConstraint, height: aspectRatioAdjustedHeight });
   });
 
   it('does not renders message text', () => {
@@ -164,6 +327,8 @@ describe('message', () => {
     expect(messageMenuProps.canEdit).toBe(false);
     expect(messageMenuProps.canReply).toBe(false);
     expect(messageMenuProps.canDelete).toBe(false);
+    expect(messageMenuProps.canViewInfo).toBe(false);
+    expect(messageMenuProps.canReportUser).toBe(false);
   });
 
   it('allows reply when parent message is set', () => {
@@ -196,6 +361,7 @@ describe('message', () => {
     const messageMenuProps = wrapper.find(MessageMenu).first().props();
     expect(messageMenuProps.canEdit).toBe(false);
     expect(messageMenuProps.canReply).toBe(false);
+    expect(messageMenuProps.canViewInfo).toBe(false);
     expect(messageMenuProps.canDelete).toBe(true);
   });
 
@@ -219,6 +385,21 @@ describe('message', () => {
     });
 
     expect(wrapper.find('.message__footer').text()).toEqual('(Edited)');
+  });
+
+  it('renders media when editing media message with text', () => {
+    const wrapper = subject({
+      message: 'the message',
+      media: { url: 'https://image.com/image.png', type: MediaType.Image },
+    });
+
+    const mockEvent = { clientX: 100, clientY: 200, preventDefault: jest.fn() };
+    wrapper.simulate('contextmenu', mockEvent);
+
+    wrapper.find(MessageMenu).props().onEdit();
+
+    expect(wrapper.find(MessageInput)).toExist();
+    expect(wrapper.find('.message__block-image img')).toExist();
   });
 
   it('renders reply message', () => {
@@ -452,6 +633,103 @@ describe('message', () => {
       wrapper.find('[className$="-audio"]').simulate('click');
 
       expect(onImageClick).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('MessageMenu', () => {
+    it('enables download option for media messages', () => {
+      const wrapper = subject({
+        message: 'the message',
+        media: { url: 'https://image.com/image.png', type: MediaType.Image },
+      });
+
+      const mockEvent = { clientX: 100, clientY: 200, preventDefault: jest.fn() };
+      wrapper.simulate('contextmenu', mockEvent);
+
+      const messageMenuProps = wrapper.find(MessageMenu).props();
+      expect(messageMenuProps.canDownload).toBe(true);
+      expect(messageMenuProps.isMediaMessage).toBe(true);
+    });
+
+    it('disables download option for non-media messages', () => {
+      const wrapper = subject({
+        message: 'the message',
+      });
+
+      const mockEvent = { clientX: 100, clientY: 200, preventDefault: jest.fn() };
+      wrapper.simulate('contextmenu', mockEvent);
+
+      const messageMenuProps = wrapper.find(MessageMenu).props();
+      expect(messageMenuProps.canDownload).toBe(false);
+      expect(messageMenuProps.isMediaMessage).toBe(false);
+    });
+
+    it('disables download option for gif images', () => {
+      const wrapper = subject({
+        message: 'the message',
+        media: { url: 'https://image.com/image.gif', type: MediaType.Image, mimetype: 'image/gif' },
+      });
+
+      const mockEvent = { clientX: 100, clientY: 200, preventDefault: jest.fn() };
+      wrapper.simulate('contextmenu', mockEvent);
+
+      const messageMenuProps = wrapper.find(MessageMenu).props();
+      expect(messageMenuProps.canDownload).toBe(false);
+      expect(messageMenuProps.isMediaMessage).toBe(true);
+    });
+
+    it('enables copy option for media messages', () => {
+      const wrapper = subject({
+        message: 'the message',
+        media: { url: 'https://image.com/image.png', type: MediaType.Image },
+      });
+
+      const mockEvent = { clientX: 100, clientY: 200, preventDefault: jest.fn() };
+      wrapper.simulate('contextmenu', mockEvent);
+
+      const messageMenuProps = wrapper.find(MessageMenu).props();
+      expect(messageMenuProps.canCopy).toBe(true);
+    });
+
+    it('does not enable copy option for non-media messages', () => {
+      const wrapper = subject({
+        message: 'the message',
+      });
+
+      const mockEvent = { clientX: 100, clientY: 200, preventDefault: jest.fn() };
+      wrapper.simulate('contextmenu', mockEvent);
+
+      const messageMenuProps = wrapper.find(MessageMenu).props();
+      expect(messageMenuProps.canCopy).toBe(false);
+    });
+  });
+
+  describe('Report Button', () => {
+    it('should not renders report button when message is owned by current user', () => {
+      const wrapper = subject({
+        message: 'the message',
+        isOwner: true,
+      });
+
+      expect(wrapper.find(MessageMenu).props().canReportUser).toBe(false);
+    });
+
+    it('should renders report button when message is not owned by current user', () => {
+      const wrapper = subject({
+        message: 'the message',
+        isOwner: false,
+      });
+
+      expect(wrapper.find(MessageMenu).props().canReportUser).toBe(true);
+    });
+
+    it('should call onReportUser when report button is clicked', () => {
+      const onReportUser = jest.fn();
+      const wrapper = subject({ message: 'the message', isOwner: false, onReportUser });
+
+      wrapper.find(MessageMenu).simulate('reportUser');
+
+      expect(onReportUser).toHaveBeenCalledWith({ reportedUserId: sender.userId });
     });
   });
 });

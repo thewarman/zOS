@@ -12,6 +12,14 @@ const anonymousPaths = [
 
 export function* saga() {
   const history = yield call(getHistory);
+  const navigator = yield call(getNavigator);
+  const isMobileDevice = /Mobi|Android/i.test(navigator.userAgent);
+
+  if (isMobileDevice) {
+    history.replace({ pathname: '/restricted' });
+    yield put(setIsComplete(true));
+    return;
+  }
 
   const success = yield call(getCurrentUser);
   if (success) {

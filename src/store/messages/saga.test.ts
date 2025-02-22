@@ -9,6 +9,9 @@ import {
   sendBrowserNotification,
   receiveUpdateMessage,
   replaceOptimisticMessage,
+  onMessageEmojiReactionChange,
+  updateMessageEmojiReaction,
+  sendEmojiReaction,
 } from './saga';
 
 import { rootReducer } from '../reducer';
@@ -16,8 +19,9 @@ import { mapMessage, send as sendBrowserMessage } from '../../lib/browser';
 import { call } from 'redux-saga/effects';
 import { StoreBuilder } from '../test/store';
 import { MessageSendStatus } from '.';
-import { chat } from '../../lib/chat';
+import { chat, getMessageEmojiReactions, sendEmojiReactionEvent } from '../../lib/chat';
 import { NotifiableEventType } from '../../lib/chat/matrix/types';
+import { DefaultRoomLabels } from '../channels';
 
 const chatClient = {
   editMessage: (_channelId: string, _messageId: string, _message: string, _mentionedUserIds: string[]) => ({}),
@@ -76,6 +80,93 @@ describe('messages saga', () => {
 
     const initialState = {
       authentication: { user: { data: user } },
+    };
+
+    await expectSaga(sendBrowserNotification, eventData as any)
+      .provide([
+        [
+          matchers.call.fn(sendBrowserMessage),
+          undefined,
+        ],
+      ])
+      .not.call(sendBrowserMessage, mapMessage(eventData as any))
+      .withState(initialState)
+      .run();
+  });
+
+  it('sends a browser notification when the room is NOT muted', async () => {
+    const eventData = {
+      id: 8667728016,
+      sender: { userId: 'sender-id' },
+      createdAt: 1678861267433,
+      type: NotifiableEventType.RoomMessage,
+      roomId: 'room-id-1',
+    };
+
+    const initialState = {
+      normalized: {
+        channels: {
+          'room-id-1': { labels: [] },
+        },
+      },
+    };
+
+    await expectSaga(sendBrowserNotification, eventData as any)
+      .provide([
+        [
+          matchers.call.fn(sendBrowserMessage),
+          undefined,
+        ],
+      ])
+      .call(sendBrowserMessage, mapMessage(eventData as any))
+      .withState(initialState)
+      .run();
+  });
+
+  it('does not send a browser notification when the room is muted', async () => {
+    const eventData = {
+      id: 8667728016,
+      sender: { userId: 'sender-id' },
+      createdAt: 1678861267433,
+      type: NotifiableEventType.RoomMessage,
+      roomId: 'room-id-1',
+    };
+
+    const initialState = {
+      normalized: {
+        channels: {
+          'room-id-1': { labels: [DefaultRoomLabels.MUTE] },
+        },
+      },
+    };
+
+    await expectSaga(sendBrowserNotification, eventData as any)
+      .provide([
+        [
+          matchers.call.fn(sendBrowserMessage),
+          undefined,
+        ],
+      ])
+      .not.call(sendBrowserMessage, mapMessage(eventData as any))
+      .withState(initialState)
+      .run();
+  });
+
+  it('does not send a browser notification when the room is archived', async () => {
+    const eventData = {
+      id: 8667728016,
+      sender: { userId: 'sender-id' },
+      createdAt: 1678861267433,
+      type: NotifiableEventType.RoomMessage,
+      roomId: 'room-id-1',
+    };
+
+    const initialState = {
+      normalized: {
+        channels: {
+          'room-id-1': { labels: [DefaultRoomLabels.ARCHIVED] },
+        },
+      },
     };
 
     await expectSaga(sendBrowserNotification, eventData as any)
@@ -197,7 +288,7 @@ describe(receiveUpdateMessage, () => {
     const { storeState } = await expectSaga(receiveUpdateMessage, {
       payload: { channelId: 'channel-1', message: editedMessage },
     })
-      .provide([...successResponses()])
+      .provide([...successResponses(), [call(getMessageEmojiReactions, 'channel-1'), [{}]]])
       .withReducer(rootReducer, initialState.build())
       .run();
 
@@ -208,6 +299,33 @@ describe(receiveUpdateMessage, () => {
     const message = { id: 8667728016, message: 'original message' };
     const editedMessage = { id: 8667728016, message: 'edited message: www.example.com' };
     const preview = { id: 'fdf2ce2b-062e-4a83-9c27-03f36c81c0c0', type: 'link' };
+    const initialState = new StoreBuilder().withConversationList({ id: 'channel-1', messages: [message] as any });
+    const { storeState } = await expectSaga(receiveUpdateMessage, {
+      payload: { channelId: 'channel-1', message: editedMessage },
+    })
+      .provide([
+        [call(getMessageEmojiReactions, 'channel-1'), [{}]],
+        [call(getPreview, editedMessage.message), preview],
+
+        ...successResponses(),
+      ])
+      .withReducer(rootReducer, initialState.build())
+      .run();
+    expect(storeState.normalized.messages[message.id]).toEqual({ ...editedMessage, preview });
+  });
+
+  it('adds the reactions if they exist', async () => {
+    const message = { id: 8667728016, message: 'original message' };
+    const editedMessage = { id: 8667728016, message: 'edited message with reaction' };
+    const reactions = [
+      { eventId: 8667728016, key: '😂' },
+      { eventId: 8667728016, key: '👍' },
+    ];
+
+    const expectedReactions = {
+      '😂': 1,
+      '👍': 1,
+    };
 
     const initialState = new StoreBuilder().withConversationList({ id: 'channel-1', messages: [message] as any });
 
@@ -215,13 +333,13 @@ describe(receiveUpdateMessage, () => {
       payload: { channelId: 'channel-1', message: editedMessage },
     })
       .provide([
-        [call(getPreview, editedMessage.message), preview],
+        [call(getMessageEmojiReactions, 'channel-1'), reactions],
         ...successResponses(),
       ])
       .withReducer(rootReducer, initialState.build())
       .run();
 
-    expect(storeState.normalized.messages[message.id]).toEqual({ ...editedMessage, preview });
+    expect(storeState.normalized.messages[message.id]).toEqual({ ...editedMessage, reactions: expectedReactions });
   });
 
   function successResponses() {
@@ -297,5 +415,110 @@ describe(replaceOptimisticMessage, () => {
       .run();
 
     expect(returnValue[0].preview).toEqual({ url: 'example.com/old-preview' });
+  });
+});
+
+describe('onMessageEmojiReactionChange', () => {
+  it('calls updateMessageEmojiReaction with the correct arguments', async () => {
+    const roomId = 'room-id';
+    const reaction = { eventId: 'message-1', key: '❤️' };
+
+    await expectSaga(onMessageEmojiReactionChange, { payload: { roomId, reaction } })
+      .provide([
+        [matchers.call.fn(updateMessageEmojiReaction), undefined],
+      ])
+      .call(updateMessageEmojiReaction, roomId, reaction)
+      .run();
+  });
+});
+
+describe('updateMessageEmojiReaction', () => {
+  it('updates the message with the new reaction', async () => {
+    const roomId = 'room-id';
+    const reaction = { eventId: 'message-1', key: '❤️' };
+    const messages = [
+      { id: 'message-1', reactions: { '👍': 1 } },
+      { id: 'message-2', reactions: {} },
+    ];
+
+    const initialState = {
+      normalized: {
+        messages: {
+          'message-1': messages[0],
+          'message-2': messages[1],
+        },
+        channels: {
+          [roomId]: {
+            id: roomId,
+            messages: ['message-1', 'message-2'],
+          },
+        },
+      },
+    };
+
+    const updatedMessages = [
+      { id: 'message-1', reactions: { '👍': 1, '❤️': 1 } },
+      { id: 'message-2', reactions: {} },
+    ];
+
+    const {
+      storeState: { normalized },
+    } = await expectSaga(updateMessageEmojiReaction, roomId, reaction)
+      .withReducer(rootReducer)
+      .withState(initialState)
+      .run();
+
+    expect(normalized.messages['message-1']).toEqual(updatedMessages[0]);
+  });
+
+  it('does not update reactions if the message does not exist', async () => {
+    const roomId = 'room-id';
+    const reaction = { eventId: 'message-3', key: '❤️' };
+    const messages = [
+      { id: 'message-1', reactions: { '👍': 1 } },
+      { id: 'message-2', reactions: {} },
+    ];
+
+    const initialState = {
+      normalized: {
+        messages: {
+          'message-1': messages[0],
+          'message-2': messages[1],
+        },
+        channels: {
+          [roomId]: {
+            id: roomId,
+            messages: ['message-1', 'message-2'],
+          },
+        },
+      },
+    };
+
+    const {
+      storeState: { normalized },
+    } = await expectSaga(updateMessageEmojiReaction, roomId, reaction)
+      .withReducer(rootReducer)
+      .withState(initialState)
+      .run();
+
+    expect(normalized.messages).toEqual({
+      'message-1': messages[0],
+      'message-2': messages[1],
+    });
+  });
+});
+
+describe('sendEmojiReaction', () => {
+  it('calls sendEmojiReactionEvent with the correct arguments', async () => {
+    const roomId = 'room-id';
+    const messageId = 'message-1';
+    const key = '❤️';
+
+    await expectSaga(sendEmojiReaction, { payload: { roomId, messageId, key } })
+      .provide([
+        [matchers.call.fn(sendEmojiReactionEvent), undefined],
+      ])
+      .call(sendEmojiReactionEvent, roomId, messageId, key)
+      .run();
   });
 });

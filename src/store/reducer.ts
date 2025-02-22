@@ -21,6 +21,10 @@ import { reducer as dialogs } from './dialogs';
 import { reducer as messageInfo } from './message-info';
 import { reducer as userProfile } from './user-profile';
 import { reducer as background } from './background';
+import { reducer as accountManagement } from './account-management';
+import { reducer as posts } from './posts';
+import { reducer as reportUser } from './report-user';
+import { reducer as thirdweb } from './thirdweb';
 
 export const rootReducer = combineReducers({
   pageload,
@@ -44,6 +48,10 @@ export const rootReducer = combineReducers({
   messageInfo,
   userProfile,
   background,
+  accountManagement,
+  posts,
+  reportUser,
+  thirdweb,
 });
 
 export type RootState = ReturnType<typeof rootReducer>;

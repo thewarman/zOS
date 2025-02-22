@@ -29,11 +29,12 @@ import { clearChannelsAndConversations } from '../channels-list/saga';
 import { clearMessages } from '../messages/saga';
 import { clearUsers } from '../users/saga';
 import { updateConnector } from '../web3/saga';
-import { Connectors } from '../../lib/web3';
 import { completePendingUserProfile } from '../registration/saga';
 import { StoreBuilder } from '../test/store';
 import { throwError } from 'redux-saga-test-plan/providers';
 import { closeUserProfile } from '../user-profile/saga';
+import { clearLastActiveConversation } from '../../lib/last-conversation';
+import { clearLastActiveTab } from '../../lib/last-tab';
 
 describe(nonceOrAuthorize, () => {
   const signedWeb3Token = '0x000000000000000000000000000000000000000A';
@@ -252,8 +253,12 @@ describe(forceLogout, () => {
     expect(storeState.authentication.displayLogoutModal).toEqual(false);
   });
 
-  it('clears the web3 connection', async () => {
-    await expectLogoutSaga().call(updateConnector, { payload: Connectors.None }).run();
+  it('clears the last active conversation', async () => {
+    await expectLogoutSaga().call(clearLastActiveConversation).call(terminate).run();
+  });
+
+  it('clears the last active tab', async () => {
+    await expectLogoutSaga().call(clearLastActiveTab).call(terminate).run();
   });
 
   it('clears the user session', async () => {

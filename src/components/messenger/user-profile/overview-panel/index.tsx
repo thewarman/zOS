@@ -5,10 +5,21 @@ import { bemClassName } from '../../../../lib/bem';
 import { PanelHeader } from '../../list/panel-header';
 import { Image, Modal } from '@zero-tech/zui/components';
 import { Button, Variant as ButtonVariant, Color as ButtonColor } from '@zero-tech/zui/components/Button';
-import { IconCurrencyEthereum, IconLock1, IconLogOut3, IconPlus, IconSettings2, IconUser1 } from '@zero-tech/zui/icons';
+import {
+  IconCurrencyEthereum,
+  IconLink1,
+  IconDownload2,
+  IconLock1,
+  IconLogOut3,
+  IconPlus,
+  IconSettings2,
+  IconUser1,
+  IconWallet3,
+} from '@zero-tech/zui/icons';
 import { InviteDialogContainer } from '../../../invite-dialog/container';
 import { RewardsItemContainer } from './rewards-item/container';
 import { featureFlags } from '../../../../lib/feature-flags';
+import { ScrollbarContainer } from '../../../scrollbar-container';
 
 import './styles.scss';
 
@@ -25,6 +36,9 @@ export interface Properties {
   onOpenEditProfile: () => void;
   onOpenRewards: () => void;
   onOpenSettings: () => void;
+  onOpenDownloads: () => void;
+  onManageAccounts: () => void;
+  onOpenLinkedAccounts: () => void;
 }
 
 interface State {
@@ -76,6 +90,18 @@ export class OverviewPanel extends React.Component<Properties, State> {
     this.props.onOpenSettings();
   };
 
+  openDownloads = () => {
+    this.props.onOpenDownloads();
+  };
+
+  onManageAccounts = () => {
+    this.props.onManageAccounts();
+  };
+
+  openLinkedAccounts = () => {
+    this.props.onOpenLinkedAccounts();
+  };
+
   renderDetails = () => {
     return (
       <div {...cn('details')}>
@@ -122,6 +148,16 @@ export class OverviewPanel extends React.Component<Properties, State> {
         <Button
           {...cn('action-button')}
           variant={ButtonVariant.Secondary}
+          onPress={this.onManageAccounts}
+          startEnhancer={<IconWallet3 size={20} />}
+          color={ButtonColor.Greyscale}
+        >
+          Manage Accounts
+        </Button>
+
+        <Button
+          {...cn('action-button')}
+          variant={ButtonVariant.Secondary}
           onPress={this.openBackupDialog}
           startEnhancer={<IconLock1 size={20} />}
           color={ButtonColor.Greyscale}
@@ -138,6 +174,28 @@ export class OverviewPanel extends React.Component<Properties, State> {
             color={ButtonColor.Greyscale}
           >
             Settings
+          </Button>
+        )}
+
+        <Button
+          {...cn('action-button')}
+          variant={ButtonVariant.Secondary}
+          onPress={this.openDownloads}
+          startEnhancer={<IconDownload2 size={20} />}
+          color={ButtonColor.Greyscale}
+        >
+          Download
+        </Button>
+
+        {featureFlags.enableLinkedAccounts && (
+          <Button
+            {...cn('action-button')}
+            variant={ButtonVariant.Secondary}
+            onPress={this.openLinkedAccounts}
+            startEnhancer={<IconLink1 size={20} />}
+            color={ButtonColor.Greyscale}
+          >
+            Linked Accounts
           </Button>
         )}
       </div>
@@ -175,16 +233,21 @@ export class OverviewPanel extends React.Component<Properties, State> {
           <PanelHeader title={'Profile'} onBack={this.navigateBack} />
         </div>
 
-        <div {...cn('body')}>
-          <div {...cn('section')}>
-            {this.renderDetails()}
-            {featureFlags.enableRewards && this.renderRewards()}
+        <ScrollbarContainer variant='on-hover'>
+          <div {...cn('panel-content-wrapper')}>
+            <div {...cn('body')}>
+              <div {...cn('section')}>
+                {this.renderDetails()}
+                {featureFlags.enableRewards && this.renderRewards()}
+              </div>
+
+              {this.renderActions()}
+            </div>
+
+            {this.renderFooter()}
           </div>
+        </ScrollbarContainer>
 
-          {this.renderActions()}
-        </div>
-
-        {this.renderFooter()}
         {this.renderInviteDialog()}
       </div>
     );

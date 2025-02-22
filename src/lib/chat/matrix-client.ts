@@ -21,11 +21,16 @@ import {
   ReceiptType,
 } from 'matrix-js-sdk';
 import { RealtimeChatEvents, IChatClient } from './';
-import { mapEventToAdminMessage, mapMatrixMessage, mapToLiveRoomEvent } from './matrix/chat-message';
+import {
+  mapEventToAdminMessage,
+  mapEventToPostMessage,
+  mapMatrixMessage,
+  mapToLiveRoomEvent,
+} from './matrix/chat-message';
 import { ConversationStatus, Channel, User as UserModel } from '../../store/channels';
 import { EditMessageOptions, Message, MessagesResponse } from '../../store/messages';
 import { FileUploadResult } from '../../store/messages/saga';
-import { ParentMessage, PowerLevels, User } from './types';
+import { MatrixProfileInfo, ParentMessage, PowerLevels, User } from './types';
 import { config } from '../../config';
 import { get, post } from '../api/rest';
 import { MemberNetworks } from '../../store/users/types';
@@ -36,15 +41,15 @@ import {
   IN_ROOM_MEMBERSHIP_STATES,
   MatrixConstants,
   MembershipStateType,
+  ReactionKeys,
   ReadReceiptPreferenceType,
 } from './matrix/types';
 import { constructFallbackForParentMessage, getFilteredMembersForAutoComplete, setAsDM } from './matrix/utils';
-import { uploadImage } from '../../store/channels-list/api';
 import { SessionStorage } from './session-storage';
-import { encryptFile } from './matrix/media';
-import { uploadAttachment } from '../../store/messages/api';
+import { encryptFile, generateBlurhash, getImageDimensions, isFileUploadedToMatrix } from './matrix/media';
 import { featureFlags } from '../feature-flags';
 import { logger } from 'matrix-js-sdk/lib/logger';
+import { PostsResponse } from '../../store/posts';
 
 export const USER_TYPING_TIMEOUT = 5000; // 5s
 
@@ -76,6 +81,10 @@ export class MatrixClient implements IChatClient {
     return false;
   }
 
+  getAccessToken(): string | null {
+    return this.matrix.getAccessToken();
+  }
+
   async connect(userId: string, accessToken: string) {
     this.setConnectionStatus(ConnectionStatus.Connecting);
     this.userId = await this.initializeClient(userId, this.accessToken || accessToken);
@@ -98,30 +107,6 @@ export class MatrixClient implements IChatClient {
 
   reconnect: () => void;
 
-  async getUserPresence(userId: string) {
-    await this.waitForConnection();
-
-    try {
-      const userPresenceData = await this.matrix.getPresence(userId);
-
-      if (!userPresenceData) {
-        return { lastSeenAt: null, isOnline: false };
-      }
-
-      const { presence, last_active_ago } = userPresenceData;
-      const isOnline = presence === 'online';
-      const lastSeenAt = last_active_ago ? new Date(Date.now() - last_active_ago).toISOString() : null;
-
-      return { lastSeenAt, isOnline };
-    } catch (error: any) {
-      if (error.errcode !== 'M_FORBIDDEN') {
-        console.error(error);
-      }
-
-      return { lastSeenAt: null, isOnline: false };
-    }
-  }
-
   async getRoomNameById(roomId: string) {
     await this.waitForConnection();
 
@@ -134,6 +119,13 @@ export class MatrixClient implements IChatClient {
 
     const room = this.matrix.getRoom(roomId);
     return this.getRoomAvatar(room);
+  }
+
+  async getRoomGroupTypeById(roomId: string) {
+    await this.waitForConnection();
+
+    const room = this.matrix.getRoom(roomId);
+    return this.getRoomGroupType(room);
   }
 
   async getChannels(_id: string) {
@@ -211,12 +203,17 @@ export class MatrixClient implements IChatClient {
   }
 
   async getConversations() {
+    featureFlags.enableTimerLogs && console.time('xxxgetConversations');
+
     await this.waitForConnection();
     const rooms = await this.getRoomsUserIsIn();
 
     const failedToJoin = [];
     for (const room of rooms) {
+      featureFlags.enableTimerLogs && console.time('xxxdecryptAllEvents');
       await room.decryptAllEvents();
+      featureFlags.enableTimerLogs && console.timeEnd('xxxdecryptAllEvents');
+
       await room.loadMembersIfNeeded();
       const membership = room.getMyMembership();
 
@@ -232,7 +229,13 @@ export class MatrixClient implements IChatClient {
     const filteredRooms = rooms.filter((r) => !failedToJoin.includes(r.roomId));
 
     await this.lowerMinimumInviteAndKickLevels(filteredRooms);
-    return await Promise.all(filteredRooms.map((r) => this.mapConversation(r)));
+
+    featureFlags.enableTimerLogs && console.time('xxxmapConversationresult');
+    const result = await Promise.all(filteredRooms.map((r) => this.mapConversation(r)));
+    featureFlags.enableTimerLogs && console.timeEnd('xxxmapConversationresult');
+
+    featureFlags.enableTimerLogs && console.timeEnd('xxxgetConversations');
+    return result;
   }
 
   async getSecureBackup() {
@@ -244,10 +247,10 @@ export class MatrixClient implements IChatClient {
 
   async generateSecureBackup() {
     const recoveryKey = await this.matrix.getCrypto()!.createRecoveryKeyFromPassphrase();
-    return recoveryKey.encodedPrivateKey;
+    return recoveryKey;
   }
 
-  async saveSecureBackup(recoveryKey: string) {
+  async saveSecureBackup(recoveryKey) {
     await this.matrix.bootstrapCrossSigning({
       authUploadDeviceSigningKeys: async (makeRequest) => {
         await makeRequest({ identifier: { type: 'm.id.user', user: this.userId } });
@@ -257,9 +260,15 @@ export class MatrixClient implements IChatClient {
     // Set this because bootstrapping the secret storage will call back
     // and require this value. Not ideal but given the callback nature of
     // setting up the secret storage, this suffices for now.
-    this.secretStorageKey = recoveryKey;
+    this.secretStorageKey = recoveryKey.encodedPrivateKey;
     try {
-      await this.matrix.getCrypto().bootstrapSecretStorage({ setupNewKeyBackup: true });
+      await this.matrix.getCrypto().bootstrapSecretStorage({
+        // createSecretStorageKey is now required to correctly setup the secret storage?
+        createSecretStorageKey: async () => recoveryKey,
+        setupNewKeyBackup: true,
+      });
+    } catch (error) {
+      console.log('Fail: bootstrapSecretStorage failed', error);
     } finally {
       this.secretStorageKey = null;
     }
@@ -323,6 +332,10 @@ export class MatrixClient implements IChatClient {
     return relatesTo && relatesTo.rel_type === MatrixConstants.REPLACE;
   }
 
+  private isUserAvatarEvent(event): boolean {
+    return event.content?.avatar_url && event.unsigned?.prev_content?.avatar_url !== event.content?.avatar_url;
+  }
+
   async searchMyNetworksByName(filter: string): Promise<MemberNetworks[]> {
     return await get('/api/v2/users/searchInNetworksByName', { filter, limit: 50, isMatrixEnabled: true })
       .catch((_error) => null)
@@ -368,19 +381,27 @@ export class MatrixClient implements IChatClient {
       case EventType.RoomMessage:
         return mapMatrixMessage(event, this.matrix);
 
-      case CustomEventType.USER_JOINED_INVITER_ON_ZERO:
       case EventType.RoomCreate:
         return mapEventToAdminMessage(event);
 
       case EventType.RoomMember:
         if (
           event.content.membership === MembershipStateType.Leave ||
-          event.content.membership === MembershipStateType.Invite
+          event.content.membership === MembershipStateType.Invite ||
+          this.isUserAvatarEvent(event)
         ) {
           return mapEventToAdminMessage(event);
         }
+
         return null;
+
+      case CustomEventType.ROOM_POST:
+        return mapEventToPostMessage(event, this.matrix);
+
       case EventType.RoomPowerLevels:
+        return mapEventToAdminMessage(event);
+
+      case EventType.Reaction:
         return mapEventToAdminMessage(event);
       default:
         return null;
@@ -435,15 +456,153 @@ export class MatrixClient implements IChatClient {
     };
   }
 
-  async getMessagesByChannelId(roomId: string, _lastCreatedAt?: number): Promise<MessagesResponse> {
+  // Chat Messages
+  async getMessagesByChannelId(roomId: string, lastCreatedAt?: number): Promise<MessagesResponse> {
     await this.waitForConnection();
     const room = this.matrix.getRoom(roomId);
     const liveTimeline = room.getLiveTimeline();
-    const hasMore = await this.matrix.paginateEventTimeline(liveTimeline, { backwards: true, limit: 100 });
+    let hasMore = false;
 
-    // For now, just return the full list again. Could filter out anything prior to lastCreatedAt
-    const messages = await this.getAllMessagesFromRoom(room);
+    let events = liveTimeline.getEvents();
+
+    if (lastCreatedAt) {
+      // Filter out messages that are newer than `lastCreatedAt` (only get older messages)
+      hasMore = await this.matrix.paginateEventTimeline(liveTimeline, { backwards: true, limit: 50 });
+      events = events.filter((event) => {
+        const timestamp = event.getTs();
+        return timestamp < lastCreatedAt;
+      });
+    } else {
+      hasMore = await this.matrix.paginateEventTimeline(liveTimeline, { backwards: true, limit: 50 });
+    }
+
+    const isEncrypted = room?.hasEncryptionStateEvent();
+    if (isEncrypted) {
+      await room.decryptAllEvents();
+    }
+
+    const effectiveEvents = events.map((event) => event.getEffectiveEvent());
+    const messages = await this.getAllChatMessagesFromRoom(effectiveEvents);
+
     return { messages, hasMore };
+  }
+
+  // Post Messages
+  async getPostMessagesByChannelId(roomId: string, lastCreatedAt?: number): Promise<PostsResponse> {
+    await this.waitForConnection();
+    const room = this.matrix.getRoom(roomId);
+    const liveTimeline = room.getLiveTimeline();
+    let hasMore = false;
+
+    let events = liveTimeline.getEvents();
+
+    if (lastCreatedAt) {
+      // Filter out messages that are newer than `lastCreatedAt` (only get older messages)
+      hasMore = await this.matrix.paginateEventTimeline(liveTimeline, { backwards: true, limit: 200 });
+      events = events.filter((event) => {
+        const timestamp = event.getTs();
+        return timestamp < lastCreatedAt;
+      });
+    } else {
+      hasMore = await this.matrix.paginateEventTimeline(liveTimeline, { backwards: true, limit: 200 });
+    }
+
+    const effectiveEvents = events.map((event) => event.getEffectiveEvent());
+    const postMessages = await this.getAllPostMessagesFromRoom(effectiveEvents);
+
+    return { postMessages, hasMore };
+  }
+
+  async sendMeowReactionEvent(
+    roomId: string,
+    postMessageId: string,
+    postOwnerId: string,
+    meowAmount: number
+  ): Promise<void> {
+    await this.waitForConnection();
+
+    const content = {
+      'm.relates_to': {
+        rel_type: MatrixConstants.ANNOTATION,
+        event_id: postMessageId,
+        key: `${ReactionKeys.MEOW}_${Date.now()}`,
+      },
+      amount: meowAmount,
+      postOwnerId: postOwnerId,
+    };
+
+    await this.matrix.sendEvent(roomId, MatrixConstants.REACTION as any, content);
+  }
+
+  async sendEmojiReactionEvent(roomId: string, messageId: string, key: string): Promise<void> {
+    await this.waitForConnection();
+
+    const content = {
+      'm.relates_to': {
+        rel_type: MatrixConstants.ANNOTATION,
+        event_id: messageId,
+        key,
+      },
+    };
+
+    await this.matrix.sendEvent(roomId, MatrixConstants.REACTION as any, content);
+  }
+
+  async getMessageEmojiReactions(roomId: string): Promise<{ eventId: string; key: string }[]> {
+    const room = this.matrix.getRoom(roomId);
+    if (!room) return [];
+
+    const events = room.getLiveTimeline().getEvents();
+
+    const result = events
+      .filter((event) => event.getType() === MatrixConstants.REACTION && !event?.event?.unsigned?.redacted_because)
+      .map((event) => {
+        const content = event.getContent();
+        const relatesTo = content[MatrixConstants.RELATES_TO];
+
+        if (relatesTo && relatesTo.event_id && relatesTo.key) {
+          return {
+            eventId: relatesTo.event_id,
+            key: relatesTo.key,
+          };
+        }
+
+        // If the structure is not as we expect, return null to filter it out
+        console.warn('Invalid reaction event structure:', event);
+        return null;
+      })
+      .filter((reaction) => reaction !== null);
+
+    return result;
+  }
+
+  async getPostMessageReactions(roomId: string): Promise<{ eventId: string; key: string; amount: number }[]> {
+    const room = this.matrix.getRoom(roomId);
+    if (!room) return [];
+
+    const events = room.getLiveTimeline().getEvents();
+
+    const result = events
+      .filter((event) => event.getType() === MatrixConstants.REACTION)
+      .map((event) => {
+        const content = event.getContent();
+        const relatesTo = content[MatrixConstants.RELATES_TO];
+
+        if (relatesTo && relatesTo.event_id && relatesTo.key) {
+          return {
+            eventId: relatesTo.event_id,
+            key: relatesTo.key,
+            amount: content.amount || 0,
+          };
+        }
+
+        // If the structure is not as we expect, return null to filter it out
+        console.warn('Invalid reaction event structure:', event);
+        return null;
+      })
+      .filter((reaction) => reaction !== null);
+
+    return result;
   }
 
   async getMessageByRoomId(channelId: string, messageId: string) {
@@ -499,11 +658,159 @@ export class MatrixClient implements IChatClient {
     return await this.mapConversation(room);
   }
 
-  async userJoinedInviterOnZero(channelId: string, inviterId: string, inviteeId: string) {
-    this.matrix.sendEvent(channelId, CustomEventType.USER_JOINED_INVITER_ON_ZERO, {
-      inviterId,
-      inviteeId,
+  async createUnencryptedConversation(
+    users: User[],
+    name: string = null,
+    image: File = null,
+    _optimisticId: string,
+    groupType?: string
+  ) {
+    await this.waitForConnection();
+    const coverUrl = await this.uploadCoverImage(image);
+
+    const initial_state: any[] = [
+      { type: EventType.RoomGuestAccess, state_key: '', content: { guest_access: GuestAccess.Forbidden } },
+    ];
+
+    if (coverUrl) {
+      initial_state.push({ type: EventType.RoomAvatar, state_key: '', content: { url: coverUrl } });
+    }
+
+    if (groupType) {
+      initial_state.push({ type: CustomEventType.GROUP_TYPE, state_key: '', content: { group_type: groupType } });
+    }
+
+    const options: ICreateRoomOpts = {
+      preset: Preset.PrivateChat,
+      visibility: Visibility.Private,
+      invite: [],
+      is_direct: true,
+      initial_state,
+      power_level_content_override: {
+        users: {
+          [this.userId]: PowerLevels.Owner,
+        },
+        invite: PowerLevels.Moderator, // default is PL0
+        // all below except users_default, default to PL50
+        kick: PowerLevels.Moderator,
+        redact: PowerLevels.Owner,
+        ban: PowerLevels.Owner,
+        users_default: PowerLevels.Viewer,
+      },
+    };
+    if (name) {
+      options.name = name;
+    }
+
+    const result = await this.matrix.createRoom(options);
+    await setAsDM(this.matrix, result?.room_id, users[0].matrixId);
+
+    const room = this.matrix.getRoom(result?.room_id);
+    this.initializeRoomEventHandlers(room);
+    for (const user of users) {
+      await this.matrix.invite(result?.room_id, user.matrixId);
+    }
+    return await this.mapConversation(room);
+  }
+
+  mxcUrlToHttp(mxcUrl: string, isThumbnail: boolean = false): string {
+    const height = isThumbnail ? 96 : undefined;
+    const width = isThumbnail ? 96 : undefined;
+    const resizeMethod = isThumbnail ? 'scale' : undefined;
+
+    return this.matrix.mxcUrlToHttp(mxcUrl, width, height, resizeMethod, undefined, true, true);
+  }
+
+  async uploadFile(file: File): Promise<string> {
+    await this.waitForConnection();
+
+    const response = await this.matrix.uploadContent(file, {
+      name: file.name,
+      type: file.type,
+      includeFilename: false,
     });
+
+    return response.content_uri;
+  }
+
+  // if the file is uploaded to the homeserver, then we need bearer token to download it
+  // since the endpoint to download the file is protected
+  async downloadFile(fileUrl: string, isThumbnail: boolean = false): Promise<string> {
+    if (!isFileUploadedToMatrix(fileUrl)) {
+      return fileUrl;
+    }
+
+    await this.waitForConnection();
+
+    const response = await fetch(this.mxcUrlToHttp(fileUrl, isThumbnail), {
+      headers: {
+        Authorization: `Bearer ${this.getAccessToken()}`,
+      },
+    });
+
+    if (!response.ok) {
+      console.log(`Failed to download file: ${response.status} ${response.statusText}`);
+      return '';
+    }
+
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  }
+
+  async batchDownloadFiles(
+    fileUrls: string[],
+    isThumbnail: boolean = false,
+    batchSize: number = 25
+  ): Promise<{ [fileUrl: string]: string }> {
+    // Helper function to download a single file
+    const downloadFileWithFallback = async (fileUrl: string) => {
+      try {
+        const downloadedUrl = await this.downloadFile(fileUrl, isThumbnail);
+        return { [fileUrl]: downloadedUrl };
+      } catch (error) {
+        console.log(`Error downloading file ${fileUrl}:`, error);
+        return { [fileUrl]: '' }; // If the download fails, return an empty string as a fallback
+      }
+    };
+
+    const downloadResultsMap = {};
+
+    // Split the file URLs into batches
+    for (let i = 0; i < fileUrls.length; i += batchSize) {
+      const batch = fileUrls.slice(i, i + batchSize);
+
+      console.log(`Downloading batch ${i / batchSize + 1} of ${Math.ceil(fileUrls.length / batchSize)} `, batch);
+
+      // Download the current batch of files concurrently
+      const batchResultsArray: Array<{ [fileUrl: string]: string }> = await Promise.all(
+        batch.map((fileUrl) => downloadFileWithFallback(fileUrl))
+      );
+
+      console.log(`Download for batch ${i / batchSize + 1} complete: `, batchResultsArray);
+
+      // Merge the results of the current batch into the overall map
+      batchResultsArray.forEach((result) => {
+        Object.assign(downloadResultsMap, result);
+      });
+    }
+
+    return downloadResultsMap;
+  }
+
+  async editProfile(profileInfo: MatrixProfileInfo = {}) {
+    await this.waitForConnection();
+    if (profileInfo.displayName) {
+      await this.matrix.setDisplayName(profileInfo.displayName);
+    }
+
+    if (profileInfo.avatarUrl) {
+      await this.matrix.setAvatarUrl(profileInfo.avatarUrl);
+    }
+  }
+
+  async getProfileInfo(userId: string) {
+    await this.waitForConnection();
+    return await this.matrix.getProfileInfo(userId);
   }
 
   async sendMessagesByChannelId(
@@ -520,7 +827,7 @@ export class MatrixClient implements IChatClient {
       body: message,
       msgtype: MsgType.Text,
       optimisticId: optimisticId,
-    };
+    } as any;
 
     if (parentMessage) {
       const fallback = constructFallbackForParentMessage(parentMessage);
@@ -544,43 +851,107 @@ export class MatrixClient implements IChatClient {
     };
   }
 
-  async uploadFileMessage(roomId: string, media: File, rootMessageId: string = '', optimisticId = '') {
-    if (!this.matrix.isRoomEncrypted(roomId)) {
-      console.warn('uploadFileMessage called for non-encrypted room', roomId);
-      return;
-    }
-
-    const encrypedFileInfo = await encryptFile(media);
-    const uploadedFile = await uploadAttachment(encrypedFileInfo.file);
-
-    // https://spec.matrix.org/v1.8/client-server-api/#extensions-to-mroommessage-msgtypes
-    const file = {
-      url: uploadedFile.key,
-      ...encrypedFileInfo.info,
-    };
+  async sendPostsByChannelId(channelId: string, message: string, optimisticId?: string): Promise<any> {
+    await this.waitForConnection();
 
     const content = {
-      body: null,
-      msgtype: MsgType.Image,
-      file,
+      body: message,
+      msgtype: MsgType.Text,
+      optimisticId: optimisticId,
+    };
+
+    const postResult = await this.matrix.sendEvent(channelId, CustomEventType.ROOM_POST as any, content);
+
+    return {
+      id: postResult.event_id,
+      optimisticId,
+    };
+  }
+
+  async uploadFileMessage(roomId: string, media: File, rootMessageId: string = '', optimisticId = '', isPost = false) {
+    const room = this.matrix.getRoom(roomId);
+    const isEncrypted = room?.hasEncryptionStateEvent();
+
+    // Get dimensions for images only
+    let width = 0;
+    let height = 0;
+    let blurhash = null;
+
+    if (media.type.startsWith('image/')) {
+      const dimensions = await getImageDimensions(media);
+      width = dimensions.width;
+      height = dimensions.height;
+
+      // Generate blurhash for images only
+      try {
+        blurhash = await generateBlurhash(media);
+      } catch (error) {
+        console.error('Failed to generate Blurhash:', error);
+      }
+    }
+
+    let file;
+    let url;
+
+    if (isEncrypted) {
+      const encryptedFileInfo = await encryptFile(media);
+      url = await this.uploadFile(encryptedFileInfo.file);
+      file = {
+        url,
+        ...encryptedFileInfo.info,
+      };
+    } else {
+      url = await this.uploadFile(media);
+    }
+
+    const content: any = {
+      body: '',
+      msgtype: this.getMsgType(media.type),
       info: {
         mimetype: media.type,
         size: media.size,
         name: media.name,
         optimisticId,
         rootMessageId,
+        // Only include dimension-related fields for images
+        ...(media.type.startsWith('image/') && {
+          width,
+          height,
+          w: width,
+          h: height,
+          'xyz.amorgan.blurhash': blurhash,
+        }),
+        thumbnail_url: null,
+        thumbnail_info: null,
       },
       optimisticId,
     };
 
-    const messageResult = await this.matrix.sendMessage(roomId, content);
-    this.recordMessageSent(roomId);
+    if (isEncrypted) {
+      content.file = file;
+    } else {
+      content.url = url;
+    }
 
-    // Don't return a full message, only the pertinent attributes that changed.
+    let messageResult;
+    if (isPost) {
+      messageResult = await this.matrix.sendEvent(roomId, CustomEventType.ROOM_POST as any, content);
+    } else {
+      messageResult = await this.matrix.sendMessage(roomId, content);
+      this.recordMessageSent(roomId);
+    }
+
     return {
       id: messageResult.event_id,
       optimisticId,
     } as unknown as Message;
+  }
+
+  private getMsgType(mimeType: string): string {
+    if (mimeType.startsWith('image/')) return MsgType.Image;
+    if (mimeType.startsWith('video/')) return MsgType.Video;
+    if (mimeType.startsWith('audio/')) return MsgType.Audio;
+    return MsgType.File;
   }
 
   async uploadImageUrl(
@@ -592,13 +963,11 @@ export class MatrixClient implements IChatClient {
     rootMessageId: string = '',
     optimisticId = ''
   ) {
-    if (!this.matrix.isRoomEncrypted(roomId)) {
-      console.warn('uploadGiphyMessage called for non-encrypted room', roomId);
-      return;
-    }
+    const room = this.matrix.getRoom(roomId);
+    const isEncrypted = room?.hasEncryptionStateEvent();
 
     const content = {
-      body: null,
+      body: isEncrypted ? null : '',
       msgtype: MsgType.Image,
       url: url,
       info: {
@@ -610,7 +979,7 @@ export class MatrixClient implements IChatClient {
         rootMessageId,
       },
       optimisticId,
-    };
+    } as any;
 
     const messageResult = await this.matrix.sendMessage(roomId, content);
     this.recordMessageSent(roomId);
@@ -650,7 +1019,7 @@ export class MatrixClient implements IChatClient {
         rel_type: MatrixConstants.REPLACE,
         event_id: messageId,
       },
-    };
+    } as any;
 
     const editResult = await this.matrix.sendMessage(roomId, content);
     const newMessage = await this.matrix.fetchRoomEvent(roomId, editResult.event_id);
@@ -679,17 +1048,17 @@ export class MatrixClient implements IChatClient {
     }
   }
 
-  async setReadReceiptPreference(preference: ReadReceiptPreferenceType) {
+  async setReadReceiptPreference(preference: string) {
     await this.matrix.setAccountData(MatrixConstants.READ_RECEIPT_PREFERENCE, { readReceipts: preference });
   }
 
   async getReadReceiptPreference() {
     try {
       const accountData = await this.matrix.getAccountData(MatrixConstants.READ_RECEIPT_PREFERENCE);
-      return accountData?.event?.content?.readReceipts || ReadReceiptPreferenceType.Public;
+      return accountData?.event?.content?.readReceipts || ReadReceiptPreferenceType.Private;
     } catch (err) {
       console.error('Error getting read receipt preference', err);
-      return ReadReceiptPreferenceType.Public;
+      return ReadReceiptPreferenceType.Private;
     }
   }
 
@@ -729,12 +1098,24 @@ export class MatrixClient implements IChatClient {
     const userReceiptPreference = await this.getReadReceiptPreference();
 
     const receiptType =
-      featureFlags.enableReadReceiptPreferences && userReceiptPreference === ReadReceiptPreferenceType.Public
-        ? ReceiptType.Read
-        : ReceiptType.ReadPrivate;
+      userReceiptPreference === ReadReceiptPreferenceType.Public ? ReceiptType.Read : ReceiptType.ReadPrivate;
+
+    await this.processSendReadReceipt(room, latestEvent, receiptType);
+    await this.matrix.setRoomReadMarkers(roomId, latestEvent.event.event_id);
+  }
+
+  async processSendReadReceipt(room: Room, latestEvent: MatrixEvent, receiptType: ReceiptType): Promise<void> {
+    const editedEvent = latestEvent?.event?.content?.['m.relates_to'];
+
+    if (editedEvent && editedEvent.rel_type === 'm.replace' && editedEvent.event_id) {
+      const originalEvent = room.findEventById(editedEvent.event_id);
+      if (originalEvent) {
+        await this.matrix.sendReadReceipt(originalEvent, receiptType);
+        return;
+      }
+    }
 
     await this.matrix.sendReadReceipt(latestEvent, receiptType);
-    await this.matrix.setRoomReadMarkers(roomId, latestEvent.event.event_id);
   }
 
   async leaveRoom(roomId: string, userId: string): Promise<void> {
@@ -797,6 +1178,24 @@ export class MatrixClient implements IChatClient {
     await this.matrix.redactEvent(roomId, messageId);
   }
 
+  async getAliasForRoomId(roomId: string): Promise<string | undefined> {
+    await this.waitForConnection();
+    return await this.matrix
+      .getLocalAliases(roomId)
+      .catch((err) => {
+        if (err.errcode === 'M_FORBIDDEN' || err.errcode === 'M_UNKNOWN') {
+          return Promise.resolve(undefined);
+        }
+      })
+      .then((response) => {
+        const alias = response?.aliases?.[0];
+        if (!alias) return undefined;
+
+        const match = alias.match(/#(.+?):/);
+        return match?.[1];
+      });
+  }
+
   async getRoomIdForAlias(alias: string): Promise<string | undefined> {
     await this.waitForConnection();
     return await this.matrix
@@ -826,23 +1225,25 @@ export class MatrixClient implements IChatClient {
     return await Promise.all(matches.map((r) => this.mapConversation(r)));
   }
 
-  async addRoomToFavorites(roomId: string): Promise<void> {
-    await this.waitForConnection();
+  async getRoomTags(conversations: Partial<Channel>[]): Promise<void> {
+    const tags = conversations.map(async (conversation) => {
+      featureFlags.enableTimerLogs && console.time(`xxxgetRoomTags${conversation.id}`);
+      const result = await this.matrix.getRoomTags(conversation.id);
+      conversation.labels = Object.keys(result.tags);
+      featureFlags.enableTimerLogs && console.timeEnd(`xxxgetRoomTags${conversation.id}`);
+    });
 
-    await this.matrix.setRoomTag(roomId, MatrixConstants.FAVORITE);
+    await Promise.all(tags);
   }
 
-  async removeRoomFromFavorites(roomId: string): Promise<void> {
+  async addRoomToLabel(roomId: string, label: string): Promise<void> {
     await this.waitForConnection();
-
-    await this.matrix.deleteRoomTag(roomId, MatrixConstants.FAVORITE);
+    await this.matrix.setRoomTag(roomId, label);
   }
 
-  async isRoomFavorited(roomId: string): Promise<boolean> {
+  async removeRoomFromLabel(roomId: string, label: string): Promise<void> {
     await this.waitForConnection();
-
-    const result = await this.matrix.getRoomTags(roomId);
-    return !!result.tags?.[MatrixConstants.FAVORITE];
+    await this.matrix.deleteRoomTag(roomId, label);
   }
 
   async sendTypingEvent(roomId: string, isTyping: boolean): Promise<void> {
@@ -885,6 +1286,8 @@ export class MatrixClient implements IChatClient {
       } else {
         this.publishMessageEvent(event);
       }
+    } else if (event.type === CustomEventType.ROOM_POST) {
+      this.publishPostEvent(event);
     }
   }
 
@@ -917,7 +1320,10 @@ export class MatrixClient implements IChatClient {
 
   private handleUnreadNotifications = (roomId, unreadNotifications) => {
     if (unreadNotifications) {
-      this.events.receiveUnreadCount(roomId, unreadNotifications?.total || 0);
+      this.events.receiveUnreadCount(roomId, {
+        total: unreadNotifications?.total || 0,
+        highlight: unreadNotifications?.highlight || 0,
+      });
     }
   };
 
@@ -933,8 +1339,17 @@ export class MatrixClient implements IChatClient {
       if (event.type === EventType.RoomAvatar) {
         this.publishRoomAvatarChange(event);
       }
+
+      if (event.type === CustomEventType.GROUP_TYPE) {
+        this.publishGroupTypeChange(event);
+      }
+
       if (event.type === EventType.RoomRedaction) {
         this.receiveDeleteMessage(event);
+      }
+
+      if (event.type === MatrixConstants.REACTION) {
+        this.publishReactionChange(event);
       }
 
       this.processMessageEvent(event);
@@ -946,10 +1361,6 @@ export class MatrixClient implements IChatClient {
       }
     });
 
-    this.matrix.on(RoomEvent.Receipt, async (event) => {
-      this.publishReceiptEvent(event);
-    });
-
     this.matrix.on(MatrixEventEvent.Decrypted, async (decryptedEvent: MatrixEvent) => {
       const event = decryptedEvent.getEffectiveEvent();
       if (event.type === EventType.RoomMessage) {
@@ -957,7 +1368,6 @@ export class MatrixClient implements IChatClient {
       }
     });
 
-    this.matrix.on(ClientEvent.Event, this.publishUserPresenceChange);
     this.matrix.on(RoomEvent.Name, this.publishRoomNameChange);
     this.matrix.on(RoomMemberEvent.Typing, this.publishRoomMemberTyping);
     this.matrix.on(RoomMemberEvent.PowerLevel, this.publishRoomMemberPowerLevelsChanged);
@@ -1018,6 +1428,8 @@ export class MatrixClient implements IChatClient {
   }
 
   private async initializeClient(userId: string, ssoToken: string) {
+    featureFlags.enableTimerLogs && console.time('xxxinitializeClient');
+
     if (!this.matrix) {
       const opts: any = {
         baseUrl: config.matrix.homeServerUrl,
@@ -1036,8 +1448,11 @@ export class MatrixClient implements IChatClient {
 
       await this.matrix.startClient();
 
+      featureFlags.enableTimerLogs && console.time('xxxWaitForSync');
       await this.waitForSync();
+      featureFlags.enableTimerLogs && console.timeEnd('xxxWaitForSync');
 
+      featureFlags.enableTimerLogs && console.timeEnd('xxxinitializeClient');
       return opts.userId;
     }
   }
@@ -1071,16 +1486,9 @@ export class MatrixClient implements IChatClient {
     this.events.receiveNewMessage(event.room_id, (await mapMatrixMessage(event, this.matrix)) as any);
   }
 
-  private publishUserPresenceChange = (event: MatrixEvent) => {
-    if (event.getType() === EventType.Presence) {
-      const content = event.getContent();
-      this.events.onUserPresenceChanged(
-        event.getSender(),
-        content.presence === 'online',
-        content.last_active_ago ? new Date(Date.now() - content.last_active_ago).toISOString() : ''
-      );
-    }
-  };
+  private async publishPostEvent(event) {
+    this.events.receiveNewMessage(event.room_id, (await mapEventToPostMessage(event, this.matrix)) as any);
+  }
 
   private publishRoomNameChange = (room: Room) => {
     this.events.onRoomNameChanged(room.roomId, this.getRoomName(room));
@@ -1090,10 +1498,32 @@ export class MatrixClient implements IChatClient {
     this.events.onRoomAvatarChanged(event.room_id, event.content?.url);
   };
 
+  private publishGroupTypeChange = (event) => {
+    this.events.onRoomGroupTypeChanged(event.room_id, event.content?.group_type);
+  };
+
   private publishRoomMemberTyping = (event: MatrixEvent, member: RoomMember) => {
     const content = event.getContent();
     this.events.roomMemberTyping(member.roomId, content.user_ids || []);
   };
+
+  private publishReactionChange(event) {
+    const content = event.content;
+
+    if (content.postOwnerId) {
+      this.events.postMessageReactionChange(event.room_id, {
+        eventId: content[MatrixConstants.RELATES_TO].event_id,
+        key: content[MatrixConstants.RELATES_TO].key,
+        amount: parseFloat(content.amount),
+        postOwnerId: content.postOwnerId,
+      });
+    } else {
+      this.events.messageEmojiReactionChange(event.room_id, {
+        eventId: content[MatrixConstants.RELATES_TO].event_id,
+        key: content[MatrixConstants.RELATES_TO].key,
+      });
+    }
+  }
 
   private publishRoomMemberPowerLevelsChanged = (event: MatrixEvent, member: RoomMember) => {
     this.events.roomMemberPowerLevelChanged(member.roomId, member.userId, member.powerLevel);
@@ -1136,54 +1566,66 @@ export class MatrixClient implements IChatClient {
   };
 
   private publishRoomTagChange(event, roomId) {
-    const isFavoriteTagAdded = !!event.getContent().tags?.[MatrixConstants.FAVORITE];
+    const tags = event.getContent().tags || {};
+    const tagKeys = Object.keys(tags);
 
-    if (isFavoriteTagAdded) {
-      this.events.roomFavorited(roomId);
-    } else {
-      this.events.roomUnfavorited(roomId);
-    }
+    this.events.roomLabelChange(roomId, tagKeys);
   }
 
-  private publishReceiptEvent(event: MatrixEvent) {
+  private publishReceiptEvent(event: MatrixEvent, room: Room) {
     const content = event.getContent();
     for (const eventId in content) {
       const receiptData = content[eventId]['m.read'] || {};
       for (const userId in receiptData) {
-        this.events.readReceiptReceived(eventId, userId);
+        this.events.readReceiptReceived(eventId, userId, room.roomId);
       }
     }
   }
 
   private mapConversation = async (room: Room): Promise<Partial<Channel>> => {
+    featureFlags.enableTimerLogs && console.time(`xxxmapConversation${room.roomId}`);
+
     const otherMembers = this.getOtherMembersFromRoom(room).map((userId) => this.mapUser(userId));
     const memberHistory = this.getMemberHistoryFromRoom(room).map((userId) => this.mapUser(userId));
     const name = this.getRoomName(room);
     const avatarUrl = this.getRoomAvatar(room);
     const createdAt = this.getRoomCreatedAt(room);
-    const messages = await this.getAllMessagesFromRoom(room);
-    const unreadCount = room.getUnreadNotificationCount(NotificationCountType.Total);
-    const isFavorite = await this.isRoomFavorited(room.roomId);
-    const [admins, mods] = this.getRoomAdminsAndMods(room);
+    const groupType = this.getRoomGroupType(room);
 
-    return {
+    featureFlags.enableTimerLogs && console.time(`xxxgetUpToLatestUserMessageFromRoom${room.roomId}`);
+    const messages = await this.getUpToLatestUserMessageFromRoom(room);
+    featureFlags.enableTimerLogs && console.timeEnd(`xxxgetUpToLatestUserMessageFromRoom${room.roomId}`);
+
+    const unreadCount = room.getUnreadNotificationCount(NotificationCountType.Total);
+    const highlightCount = room.getUnreadNotificationCount(NotificationCountType.Highlight);
+
+    const [admins, mods] = this.getRoomAdminsAndMods(room);
+    const isSocialChannel = groupType === 'social';
+
+    const result = {
       id: room.roomId,
       name,
       icon: avatarUrl,
       // Even if a member leaves they stay in the member list so this will still be correct
       // as zOS considers any conversation to have ever had more than 2 people to not be 1 on 1
-      isOneOnOne: room.getMembers().length === 2,
+      isOneOnOne: room.getMembers().length === 2 && !isSocialChannel,
       otherMembers: otherMembers,
       memberHistory: memberHistory,
       lastMessage: null,
       messages,
-      unreadCount,
+      unreadCount: { total: unreadCount, highlight: highlightCount },
       createdAt,
       conversationStatus: ConversationStatus.CREATED,
       adminMatrixIds: admins,
       moderatorIds: mods,
-      isFavorite,
+      labels: [],
+      isSocialChannel,
+      // this isn't the best way to get the zid as it relies on the name format, but it's a quick fix
+      zid: isSocialChannel ? name?.split('://')[1] : null,
     };
+
+    featureFlags.enableTimerLogs && console.timeEnd(`xxxmapConversation${room.roomId}`);
+    return result;
   };
 
   private mapUser(matrixId: string): UserModel {
@@ -1202,6 +1644,14 @@ export class MatrixClient implements IChatClient {
     };
   }
 
+  private getRoomGroupType(room: Room): string {
+    const roomType = room
+      .getLiveTimeline()
+      .getState(EventTimeline.FORWARDS)
+      .getStateEvents(CustomEventType.GROUP_TYPE, '');
+    return roomType?.getContent()?.group_type || '';
+  }
+
   private getRoomName(room: Room): string {
     const roomNameEvent = this.getLatestEvent(room, EventType.RoomName);
     return roomNameEvent?.getContent()?.name || '';
@@ -1209,20 +1659,48 @@ export class MatrixClient implements IChatClient {
 
   private getRoomAvatar(room: Room): string {
     const roomAvatarEvent = this.getLatestEvent(room, EventType.RoomAvatar);
-    return roomAvatarEvent?.getContent()?.url || '';
+    return roomAvatarEvent?.getContent()?.url;
   }
 
   private getRoomCreatedAt(room: Room): number {
     return this.getLatestEvent(room, EventType.RoomCreate)?.getTs() || 0;
   }
 
-  private async getAllMessagesFromRoom(room: Room): Promise<any[]> {
+  private async getAllChatMessagesFromRoom(events): Promise<any[]> {
+    const chatMessageEvents = events.filter((event) => !this.isPostEvent(event));
+    return await this.processRawEventsToMessages(chatMessageEvents);
+  }
+
+  private async getAllPostMessagesFromRoom(events): Promise<any[]> {
+    const postMessageEvents = events.filter((event) => this.isPostEvent(event));
+    return await this.processRawEventsToMessages(postMessageEvents);
+  }
+
+  private isPostEvent(event): boolean {
+    return event.type === CustomEventType.ROOM_POST;
+  }
+
+  // Performance improvement: Fetches only the latest user message to avoid processing large image files and other attachments
+  // that are not needed for the initial loading of the conversation list
+  private async getUpToLatestUserMessageFromRoom(room: Room): Promise<any[]> {
+    let found = false;
+
     const events = room
       .getLiveTimeline()
       .getEvents()
-      .map((event) => event.getEffectiveEvent());
+      .map((event) => event.getEffectiveEvent())
+      .reverse()
+      .filter((event) => {
+        if (found) return false;
 
-    return await this.processRawEventsToMessages(events);
+        if (event.type === EventType.RoomMessage || event.type === CustomEventType.ROOM_POST) {
+          found = true;
+        }
+
+        return true;
+      });
+
+    return await this.processRawEventsToMessages(events.reverse());
   }
 
   private getMemberHistoryFromRoom(room: Room): string[] {
@@ -1248,7 +1726,7 @@ export class MatrixClient implements IChatClient {
   private async uploadCoverImage(image) {
     if (image) {
       try {
-        return (await uploadImage(image)).url;
+        return await this.uploadFile(image);
       } catch (error) {
         // For now, we will just ignore the error and continue to create the room
         // No reason for the image upload to block the room creation

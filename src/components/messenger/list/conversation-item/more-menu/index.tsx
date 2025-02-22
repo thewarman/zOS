@@ -2,25 +2,26 @@ import React from 'react';
 
 import { DropdownMenu } from '@zero-tech/zui/components';
 import { IconBookmark, IconBookmarkX } from '@zero-tech/zui/icons';
+import { DefaultRoomLabels } from '../../../../../store/channels';
 
 import './styles.scss';
 
 export interface Properties {
-  isFavorite: boolean;
+  labels: string[];
   isOpen: boolean;
 
-  onFavorite: () => void;
-  onUnfavorite: () => void;
   onClose: (isOpen: boolean) => void;
+  onAddLabel: (label: string) => void;
+  onRemoveLabel: (label: string) => void;
 }
 
 export class MoreMenu extends React.Component<Properties> {
-  favorite = () => {
-    this.props.onFavorite();
+  addLabel = (label) => () => {
+    this.props.onAddLabel(label);
   };
 
-  unfavorite = () => {
-    this.props.onUnfavorite();
+  removeLabel = (label) => () => {
+    this.props.onRemoveLabel(label);
   };
 
   renderMenuOption(icon, label) {
@@ -38,22 +39,57 @@ export class MoreMenu extends React.Component<Properties> {
   };
 
   get menuItems() {
+    const labelsMap = {
+      [DefaultRoomLabels.WORK]: 'Work',
+      [DefaultRoomLabels.FAMILY]: 'Family',
+      [DefaultRoomLabels.SOCIAL]: 'Social',
+      [DefaultRoomLabels.ARCHIVED]: 'Archived',
+    };
+
     const menuItems = [];
 
-    if (!this.props.isFavorite) {
+    if (this.props.labels?.includes(DefaultRoomLabels.ARCHIVED)) {
       menuItems.push({
-        id: 'favorite',
-        label: this.renderMenuOption(<IconBookmark size={20} />, 'Favorite'),
-
-        onSelect: this.favorite,
+        id: 'unarchive',
+        label: this.renderMenuOption(<IconBookmarkX size={20} />, 'Unarchive chat'),
+        onSelect: this.removeLabel(DefaultRoomLabels.ARCHIVED),
       });
-    } else {
+      return menuItems;
+    }
+
+    if (this.props.labels?.includes(DefaultRoomLabels.FAVORITE)) {
       menuItems.push({
         id: 'unfavorite',
         label: this.renderMenuOption(<IconBookmarkX size={20} />, 'Unfavorite'),
-        onSelect: this.unfavorite,
+        onSelect: this.removeLabel(DefaultRoomLabels.FAVORITE),
+      });
+    } else {
+      menuItems.push({
+        id: 'favorite',
+        label: this.renderMenuOption(<IconBookmark size={20} />, 'Favorite'),
+        onSelect: this.addLabel(DefaultRoomLabels.FAVORITE),
       });
     }
+
+    Object.keys(labelsMap).forEach((label) => {
+      const labelName = labelsMap[label];
+      if (this.props.labels?.includes(label)) {
+        menuItems.push({
+          id: `remove-${label.toLowerCase()}`,
+          label: this.renderMenuOption(<IconBookmarkX size={20} />, `Remove from ${labelName}`),
+          onSelect: this.removeLabel(label),
+        });
+      } else {
+        menuItems.push({
+          id: `add-${label.toLowerCase()}`,
+          label: this.renderMenuOption(
+            <IconBookmark size={20} />,
+            label === DefaultRoomLabels.ARCHIVED ? 'Archive chat' : `Add to ${labelName}`
+          ),
+          onSelect: this.addLabel(label),
+        });
+      }
+    });
 
     return menuItems;
   }

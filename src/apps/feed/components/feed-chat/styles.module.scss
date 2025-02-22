@@ -1,0 +1,47 @@
+@use '~@zero-tech/zui/styles/theme' as theme;
+
+.Container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-width: 386px;
+  max-width: 482px;
+  flex-shrink: 2;
+}
+
+.FeedChat {
+  width: 100%;
+
+  :global(.direct-message-chat) {
+    margin: 0;
+    height: 100%;
+    width: 100%;
+  }
+}
+
+.Panel {
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.Scroll {
+  height: 100%;
+}
+
+.PanelHeader {
+  cursor: pointer;
+}
+
+.GroupButton {
+  color: rgba(113, 117, 122, 1);
+
+  &--is-active {
+    background-color: theme.$color-greyscale-transparency-3;
+  }
+}
+
+.MembersSidekick {
+  padding: 0 !important;
+}

@@ -1,8 +1,9 @@
 import { expectSaga } from 'redux-saga-test-plan';
-import { call } from 'redux-saga/effects';
-import { editProfile as editProfileSaga, updateUserProfile, fetchOwnedZIDs } from './saga';
+import { call, spawn } from 'redux-saga/effects';
+import { editProfile as editProfileSaga, updateUserProfile, fetchOwnedZIDs, getLocalUrl } from './saga';
 import { editUserProfile as apiEditUserProfile, fetchOwnedZIDs as apiFetchOwnedZIDs } from './api';
-import { uploadImage } from '../registration/api';
+import { uploadFile, editProfile as matrixEditProfile } from '../../lib/chat';
+
 import { EditProfileState, State, initialState as initialEditProfileState, setLoadingZIDs } from '.';
 import { rootReducer } from '../reducer';
 import { User } from '../authentication/types';
@@ -24,15 +25,17 @@ describe('editProfile', () => {
     } = await expectSaga(editProfileSaga, { payload: { name, image, primaryZID } })
       .provide([
         [
-          call(uploadImage, image),
-          { url: profileImage },
+          call(uploadFile, image),
+          profileImage,
         ],
         [
           call(apiEditUserProfile, { name, profileImage, primaryZID }),
           { success: true },
         ],
+        [spawn(matrixEditProfile, { avatarUrl: profileImage, displayName: name }), {}],
+        [call(getLocalUrl, image), 'local-image-url'],
       ])
-      .call(updateUserProfile, { name, profileImage, primaryZID })
+      .call(updateUserProfile, { name, profileImage: 'local-image-url', primaryZID })
       .withReducer(
         rootReducer,
         initialState(
@@ -40,10 +43,11 @@ describe('editProfile', () => {
           { profileSummary: { firstName: 'old-name', profileImage: 'old-image' } as any, primaryZID: 'old-zid' }
         )
       )
+      .spawn(matrixEditProfile, { avatarUrl: profileImage, displayName: name })
       .run();
 
     expect(authentication.user.data.profileSummary.firstName).toEqual('John Doe');
-    expect(authentication.user.data.profileSummary.profileImage).toEqual('profile-image-url');
+    expect(authentication.user.data.profileSummary.profileImage).toEqual('local-image-url');
     expect(authentication.user.data.primaryZID).toEqual('primary-zid');
     expect(editProfile.state).toEqual(State.SUCCESS);
     expect(editProfile.errors).toEqual([]);
@@ -55,7 +59,7 @@ describe('editProfile', () => {
     } = await expectSaga(editProfileSaga, { payload: { name, image } })
       .provide([
         [
-          call(uploadImage, image),
+          call(uploadFile, image),
           throwError(new Error('Image upload failed')),
         ],
       ])
@@ -71,7 +75,10 @@ describe('editProfile', () => {
       storeState: { editProfile },
     } = await expectSaga(editProfileSaga, { payload: { name, image, primaryZID } })
       .provide([
-        [call(uploadImage, image), { url: 'profile-image-url' }],
+        [
+          call(uploadFile, image),
+          'profile-image-url',
+        ],
         [
           call(apiEditUserProfile, { name, primaryZID, profileImage: 'profile-image-url' }),
           throwError(new Error('API call failed')),
@@ -93,6 +100,7 @@ describe('editProfile', () => {
           call(apiEditUserProfile, { name, primaryZID, profileImage: undefined }),
           { success: true },
         ],
+        [spawn(matrixEditProfile, { avatarUrl: '', displayName: name }), {}],
       ])
       .withReducer(
         rootReducer,

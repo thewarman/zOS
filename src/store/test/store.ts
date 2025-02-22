@@ -7,7 +7,10 @@ import { initialState as initialGroupManagementState } from '../group-management
 import { ChatState } from '../chat/types';
 import { initialState as authenticationInitialState } from '../authentication';
 import { MatrixState, initialState as initialMatrixState } from '../matrix';
+import { AccountManagementState, initialState as initialAccountManagementState } from '../account-management';
 import { initialState as initialLoginState } from '../login';
+import { RegistrationState, initialState as initialRegistrationState } from '../registration';
+import { ReportUserState, initialState as initialReportUserState } from '../report-user';
 
 type RecursivePartial<T> = {
   [P in keyof T]?: RecursivePartial<T[P]>;
@@ -25,6 +28,9 @@ export class StoreBuilder {
   chatState: Partial<ChatState> = {};
   activeConversationId: string = '';
   matrix: MatrixState = { ...initialMatrixState };
+  accountManagement: AccountManagementState = { ...initialAccountManagementState };
+  registration: RegistrationState = { ...initialRegistrationState };
+  reportUser: Partial<ReportUserState> = { ...initialReportUserState };
 
   withActiveConversation(conversation: Partial<Channel>) {
     this.activeConversation = conversation;
@@ -90,6 +96,21 @@ export class StoreBuilder {
     return this;
   }
 
+  withAccountManagement(data: Partial<AccountManagementState>) {
+    this.accountManagement = { ...initialAccountManagementState, ...data };
+    return this;
+  }
+
+  withRegistration(data: Partial<RegistrationState>) {
+    this.registration = { ...initialRegistrationState, ...data };
+    return this;
+  }
+
+  withReportUser(data: Partial<ReportUserState>) {
+    this.reportUser = { ...initialReportUserState, ...data };
+    return this;
+  }
+
   build() {
     const { result: channelsList, entities: channelEntitities } = normalizeChannel(
       [
@@ -122,9 +143,12 @@ export class StoreBuilder {
         user: { data: this.currentUser },
       },
       groupManagement: this.groupManagement,
+      accountManagement: this.accountManagement,
       matrix: {
         ...this.matrix,
       },
+      registration: this.registration,
+      reportUser: this.reportUser,
       ...this.otherState,
     } as RootState;
   }

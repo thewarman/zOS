@@ -1,7 +1,7 @@
 import React from 'react';
 import { shallow } from 'enzyme';
 import { Properties, GroupManagementMenu } from '.';
-import { DropdownMenu } from '@zero-tech/zui/components';
+import { DropdownMenu } from '@zero-tech/zui/components/DropdownMenu';
 
 describe(GroupManagementMenu, () => {
   const subject = (props: Partial<Properties> = {}) => {
@@ -9,26 +9,34 @@ describe(GroupManagementMenu, () => {
       canAddMembers: true,
       canLeaveRoom: true,
       canEdit: true,
+      canReportUser: true,
       canViewGroupInformation: true,
+      isRoomMuted: false,
       onStartAddMember: () => {},
       onLeave: () => {},
       onEdit: () => {},
       onViewGroupInformation: () => {},
+      onMute: () => {},
+      onUnmute: () => {},
+      onReportUser: () => {},
       ...props,
     };
 
     return shallow(<GroupManagementMenu {...allProps} />);
   };
 
-  it('does not render the menu if user cannot do anything', function () {
+  it('only renders mute notifications toggle menu item if user cannot do anything', function () {
     const wrapper = subject({
       canAddMembers: false,
       canLeaveRoom: false,
       canEdit: false,
       canViewGroupInformation: false,
+      canReportUser: false,
     });
 
-    expect(wrapper).not.toHaveElement(DropdownMenu);
+    expect(wrapper).toHaveElement(DropdownMenu);
+    expect(wrapper.find(DropdownMenu).prop('items')).toHaveLength(1);
+    expect(wrapper.find(DropdownMenu).prop('items')[0].id).toEqual('mute_notifications');
   });
 
   describe('Add Member', () => {
@@ -93,6 +101,58 @@ describe(GroupManagementMenu, () => {
       expect(menuItem(wrapper, 'group_information')).toBeFalsy();
     });
   });
+
+  describe('Mute', () => {
+    it('calls onMute when the mute menu item is selected and isRoomMuted is false', () => {
+      const onMute = jest.fn();
+      const wrapper = subject({ onMute, isRoomMuted: false });
+
+      selectItem(wrapper, 'mute_notifications');
+
+      expect(onMute).toHaveBeenCalled();
+    });
+
+    it('calls onUnmute when the unmute menu item is selected and isRoomMuted is true', () => {
+      const onUnmute = jest.fn();
+      const wrapper = subject({ onUnmute, isRoomMuted: true });
+
+      selectItem(wrapper, 'mute_notifications');
+
+      expect(onUnmute).toHaveBeenCalled();
+    });
+
+    it('renders "Mute Notifications" text when isRoomMuted is false', () => {
+      const wrapper = subject({ isRoomMuted: false });
+
+      const muteNotificationsItem = menuItem(wrapper, 'mute_notifications');
+
+      expectLabelToContainText(muteNotificationsItem, 'Mute Notifications');
+    });
+
+    it('renders "Unmute Notifications" text when isRoomMuted is true', () => {
+      const wrapper = subject({ isRoomMuted: true });
+
+      const unmuteNotificationsItem = menuItem(wrapper, 'mute_notifications');
+
+      expectLabelToContainText(unmuteNotificationsItem, 'Unmute Notifications');
+    });
+  });
+
+  describe('Report User', () => {
+    it('calls onReportUser when the report user menu item is selected', () => {
+      const onReportUser = jest.fn();
+      const wrapper = subject({ onReportUser, canReportUser: true });
+
+      selectItem(wrapper, 'report_user');
+
+      expect(onReportUser).toHaveBeenCalled();
+    });
+
+    it('does not render item when canReportUser is false', function () {
+      const wrapper = subject({ canReportUser: false });
+      expect(menuItem(wrapper, 'report_user')).toBeFalsy();
+    });
+  });
 });
 
 function selectItem(wrapper, id) {
@@ -102,4 +162,9 @@ function selectItem(wrapper, id) {
 function menuItem(menu, id) {
   const dropdownMenu = menu.find(DropdownMenu);
   return dropdownMenu.prop('items').find((i) => i.id === id);
+}
+
+function expectLabelToContainText(item, expectedText) {
+  const label = shallow(item.label);
+  expect(label.text()).toContain(expectedText);
 }

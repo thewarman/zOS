@@ -6,7 +6,6 @@ import { createAction } from '@reduxjs/toolkit';
 import { UnreadCountUpdatedPayload } from './types';
 import { ParentMessage } from '../../lib/chat/types';
 import { Wallet } from '../authentication/types';
-import { ReadReceiptPreferenceType } from '../../lib/chat/matrix/types';
 
 export interface User {
   userId: string;
@@ -36,6 +35,15 @@ export enum ConversationStatus {
   ERROR,
 }
 
+export enum DefaultRoomLabels {
+  WORK = 'm.work',
+  FAMILY = 'm.family',
+  SOCIAL = 'm.social',
+  ARCHIVED = 'm.archived',
+  FAVORITE = 'm.favorite',
+  MUTE = 'm.mute',
+}
+
 export interface Channel {
   id: string;
   optimisticId?: string;
@@ -44,9 +52,10 @@ export interface Channel {
   otherMembers: User[];
   memberHistory: User[];
   hasMore: boolean;
+  hasMorePosts?: boolean;
   createdAt: number;
   lastMessage: Message;
-  unreadCount?: number;
+  unreadCount?: { total: number; highlight: number };
   icon?: string;
   isOneOnOne: boolean;
   hasLoadedMessages: boolean;
@@ -55,8 +64,10 @@ export interface Channel {
   adminMatrixIds: string[];
   moderatorIds?: string[];
   reply?: ParentMessage;
-  isFavorite: boolean;
   otherMembersTyping: string[];
+  labels?: string[];
+  isSocialChannel?: boolean;
+  zid?: string;
 }
 
 export const CHANNEL_DEFAULTS = {
@@ -66,9 +77,10 @@ export const CHANNEL_DEFAULTS = {
   otherMembers: [],
   memberHistory: [],
   hasMore: true,
+  hasMorePosts: true,
   createdAt: 0,
   lastMessage: null,
-  unreadCount: 0,
+  unreadCount: { total: 0, highlight: 0 },
   icon: '',
   isOneOnOne: true,
   hasLoadedMessages: false,
@@ -76,8 +88,10 @@ export const CHANNEL_DEFAULTS = {
   messagesFetchStatus: null,
   adminMatrixIds: [],
   moderatorIds: [],
-  isFavorite: false,
   otherMembersTyping: [],
+  labels: [],
+  isSocialChannel: false,
+  zid: null,
 };
 
 export enum SagaActionTypes {
@@ -85,22 +99,18 @@ export enum SagaActionTypes {
   OpenConversation = 'channels/saga/openConversation',
   OnReply = 'channels/saga/onReply',
   OnRemoveReply = 'channels/saga/onRemoveReply',
-  OnFavoriteRoom = 'channels/saga/onFavoriteRoom',
-  OnUnfavoriteRoom = 'channels/saga/onUnfavoriteRoom',
   UserTypingInRoom = 'channels/saga/userTypingInRoom',
-  OnSetReadReceiptPreference = 'channels/saga/onSetReadReceiptPreference',
+  OnAddLabel = 'channels/saga/onAddLabel',
+  OnRemoveLabel = 'channels/saga/onRemoveLabel',
 }
 
 const openConversation = createAction<{ conversationId: string }>(SagaActionTypes.OpenConversation);
 const unreadCountUpdated = createAction<UnreadCountUpdatedPayload>(SagaActionTypes.UnreadCountUpdated);
 const onReply = createAction<{ reply: ParentMessage }>(SagaActionTypes.OnReply);
 const onRemoveReply = createAction(SagaActionTypes.OnRemoveReply);
-const onFavoriteRoom = createAction<{ roomId: string }>(SagaActionTypes.OnFavoriteRoom);
-const onUnfavoriteRoom = createAction<{ roomId: string }>(SagaActionTypes.OnUnfavoriteRoom);
 const userTypingInRoom = createAction<{ roomId: string }>(SagaActionTypes.UserTypingInRoom);
-const onSetReadReceiptPreference = createAction<{ preference: ReadReceiptPreferenceType }>(
-  SagaActionTypes.OnSetReadReceiptPreference
-);
+const onAddLabel = createAction<{ roomId: string; label: string }>(SagaActionTypes.OnAddLabel);
+const onRemoveLabel = createAction<{ roomId: string; label: string }>(SagaActionTypes.OnRemoveLabel);
 
 const slice = createNormalizedSlice({
   name: 'channels',
@@ -119,8 +129,7 @@ export {
   openConversation,
   onReply,
   onRemoveReply,
-  onFavoriteRoom,
-  onUnfavoriteRoom,
   userTypingInRoom,
-  onSetReadReceiptPreference,
+  onAddLabel,
+  onRemoveLabel,
 };

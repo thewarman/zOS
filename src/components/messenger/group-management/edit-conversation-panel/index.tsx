@@ -25,6 +25,7 @@ export interface Properties {
   state: EditConversationState;
   conversationAdminIds: string[];
   conversationModeratorIds: string[];
+  isSocialChannel: boolean;
 
   onBack: () => void;
   onEdit: (name: string, image: File | null) => void;
@@ -69,6 +70,10 @@ export class EditConversationPanel extends React.Component<Properties, State> {
     return this.props.otherMembers.length > 1;
   }
 
+  get canEditGroupName() {
+    return !this.props.isSocialChannel;
+  }
+
   get isCurrentUserAdmin() {
     return isUserAdmin(this.props.currentUser, this.props.conversationAdminIds);
   }
@@ -107,6 +112,7 @@ export class EditConversationPanel extends React.Component<Properties, State> {
           onChange={this.trackName}
           placeholder='Group name...'
           {...cn('body-input')}
+          isDisabled={!this.canEditGroupName}
         />
 
         {this.generalError && (

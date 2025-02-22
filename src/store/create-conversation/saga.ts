@@ -1,10 +1,10 @@
 import { put, call, select, race, take, fork, spawn } from 'redux-saga/effects';
 import { SagaActionTypes, Stage, setFetchingConversations, setGroupCreating, setGroupUsers, setStage } from '.';
-import { channelsReceived, createConversation as performCreateConversation } from '../channels-list/saga';
+import {
+  createConversation as performCreateConversation,
+  createUnencryptedConversation as performCreateUnencryptedConversation,
+} from '../channels-list/saga';
 import { Events, getAuthChannel } from '../authentication/channels';
-import { currentUserSelector } from '../authentication/selectors';
-import { fetchConversationsWithUsers } from '../../lib/chat';
-import { denormalize as denormalizeUsers } from '../users';
 import { denormalizeConversations } from '../channels-list';
 import { openConversation } from '../channels/saga';
 
@@ -27,24 +27,8 @@ export function* groupMembersSelected(action) {
 }
 
 export function* performGroupMembersSelected(userSelections: { value: string; label: string; image?: string }[]) {
-  const currentUser = yield select(currentUserSelector);
-  const userIds = [
-    currentUser.id,
-    ...userSelections.map((o) => o.value),
-  ];
-  const users = yield select((state) => denormalizeUsers(userIds, state));
-
-  const existingConversations = yield call(fetchConversationsWithUsers, users);
-
-  if (existingConversations.length === 0) {
-    yield put(setGroupUsers(userSelections));
-    return Stage.GroupDetails;
-  } else {
-    const selectedConversation = existingConversations[0];
-    yield call(channelsReceived, { payload: { channels: [selectedConversation] } });
-    yield call(openConversation, selectedConversation.id);
-    return Stage.None;
-  }
+  yield put(setGroupUsers(userSelections));
+  return Stage.GroupDetails;
 }
 
 export function* createConversation(action) {
@@ -57,19 +41,36 @@ export function* createConversation(action) {
   }
 }
 
+export function* createUnencryptedConversation(action) {
+  const { userIds, name, image, groupType } = action.payload;
+  try {
+    yield put(setGroupCreating(true));
+    yield call(performCreateUnencryptedConversation, userIds, name, image, groupType);
+  } finally {
+    yield put(setGroupCreating(false));
+  }
+}
+
 export function* saga() {
   yield fork(authWatcher);
 
   while (true) {
     const { startEvent, createConversationEvent } = yield race({
       startEvent: take(SagaActionTypes.Start),
-      createConversationEvent: take(SagaActionTypes.CreateConversation),
+      createConversationEvent: take([
+        SagaActionTypes.CreateConversation,
+        SagaActionTypes.CreateUnencryptedConversation,
+      ]),
     });
 
     if (startEvent) {
       yield call(startConversation);
     } else if (createConversationEvent) {
-      yield call(createConversation, createConversationEvent);
+      if (createConversationEvent.type === SagaActionTypes.CreateConversation) {
+        yield call(createConversation, createConversationEvent);
+      } else if (createConversationEvent.type === SagaActionTypes.CreateUnencryptedConversation) {
+        yield call(createUnencryptedConversation, createConversationEvent);
+      }
     }
   }
 }
@@ -116,6 +117,7 @@ function* handleInitiation() {
   const action = yield take([
     SagaActionTypes.MembersSelected,
     SagaActionTypes.CreateConversation,
+    SagaActionTypes.CreateUnencryptedConversation,
   ]);
 
   if (action.type === SagaActionTypes.MembersSelected) {
@@ -128,16 +130,24 @@ function* handleInitiation() {
 
   if (existingOneOnOne) {
     yield call(openConversation, existingOneOnOne.id);
-  } else {
+  } else if (action.type === SagaActionTypes.CreateConversation) {
     yield call(createConversation, action);
+  } else if (action.type === SagaActionTypes.CreateUnencryptedConversation) {
+    yield call(createUnencryptedConversation, action);
   }
 
   return Stage.None;
 }
 
 function* handleGroupDetails() {
-  const action = yield take(SagaActionTypes.CreateConversation);
-  yield spawn(createConversation, action);
+  const action = yield take([SagaActionTypes.CreateConversation, SagaActionTypes.CreateUnencryptedConversation]);
+
+  if (action.type === SagaActionTypes.CreateConversation) {
+    yield spawn(createConversation, action);
+  } else if (action.type === SagaActionTypes.CreateUnencryptedConversation) {
+    yield spawn(createUnencryptedConversation, action);
+  }
+
   return Stage.None;
 }
 

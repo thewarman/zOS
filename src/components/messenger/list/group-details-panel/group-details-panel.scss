@@ -21,7 +21,8 @@ $side-padding: 16px;
     align-items: center;
     gap: 40px;
     margin-top: 24px;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     max-height: calc(100vh - 180px);
   }
 
@@ -33,7 +34,6 @@ $side-padding: 16px;
     display: flex;
     flex-direction: column;
     width: 100%;
-    overflow-y: auto;
   }
 
   &__selected-header {
@@ -56,7 +56,7 @@ $side-padding: 16px;
   }
 
   &__footer {
-    padding: 16px 16px 0 16px;
+    padding: 16px;
   }
 
   &__create-button {

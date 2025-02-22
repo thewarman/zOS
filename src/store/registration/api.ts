@@ -48,6 +48,25 @@ export async function createAccount({
   }
 }
 
+export async function addEmailAccount({ email, password }: { email: string; password: string }) {
+  const user = { email, password };
+  try {
+    const response = await post('/api/v2/accounts/add-email').send(user);
+    return {
+      success: true,
+      response: response.body,
+    };
+  } catch (error: any) {
+    if (error?.response?.status === 400) {
+      return {
+        success: false,
+        response: error.response.body.code,
+      };
+    }
+    throw error;
+  }
+}
+
 export async function createWeb3Account({ inviteCode, web3Token }: { inviteCode: string; web3Token: string }) {
   try {
     const response = await post('/api/v2/accounts/createAndAuthorize')
@@ -111,6 +130,7 @@ interface FileResult {
   url: string;
 }
 
+// this is used to upload images to cloudinary
 export async function uploadImage(file: File): Promise<FileResult> {
   const response = await get<ImageApiUploadResponse>('/upload/info');
   const uploadInfo = response.body;

@@ -3,16 +3,56 @@
 @import '../../glass';
 
 .app-bar {
-  width: 88px;
   flex-shrink: 0;
   flex-grow: 0;
 
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: center;
-  justify-content: center;
-  pointer-events: all;
+  padding: 12px;
 
-  @include main-background;
+  display: flex;
+  align-items: center;
+
+  &__container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    gap: 6px;
+    padding: 6px;
+
+    backdrop-filter: blur(30px);
+
+    list-style: none;
+    pointer-events: all;
+  }
+
+  &__notification-icon-wrapper {
+    position: relative;
+  }
+
+  &__notification-icon {
+    &--highlight {
+      color: #9054f1;
+    }
+  }
+
+  &__notification-dot {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: theme.$color-secondary-11;
+  }
+
+  &__highlight-dot {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #9054f1;
+  }
 }

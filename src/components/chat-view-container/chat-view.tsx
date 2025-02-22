@@ -2,9 +2,8 @@ import React, { Fragment } from 'react';
 import { Waypoint } from 'react-waypoint';
 import classNames from 'classnames';
 import moment from 'moment';
-import { Message as MessageModel, MediaType, EditMessageOptions } from '../../store/messages';
+import { Message as MessageModel, MediaType, EditMessageOptions, Media } from '../../store/messages';
 import InvertedScroll from '../inverted-scroll';
-import { Lightbox } from '@zer0-os/zos-component-library';
 import { User } from '../../store/authentication/types';
 import { User as ChannelMember } from '../../store/channels';
 import { ParentMessage } from '../../lib/chat/types';
@@ -50,18 +49,21 @@ export interface Properties {
   isOneOnOne: boolean;
   conversationErrorMessage: string;
   isSecondarySidekickOpen: boolean;
+  toggleSecondarySidekick: () => void;
+  openMessageInfo: (payload: { roomId: string; messageId: number }) => void;
+  loadAttachmentDetails: (payload: { media: Media; messageId: string }) => void;
+  sendEmojiReaction: (messageId, key) => void;
+  onReportUser: (payload: { reportedUserId: string }) => void;
+  openLightbox: (payload: { media: any[]; startingIndex: number }) => void;
 }
 
 export interface State {
-  lightboxMedia: any[];
-  lightboxStartIndex: number;
-  isLightboxOpen: boolean;
   rendered: boolean;
 }
 
 export class ChatView extends React.Component<Properties, State> {
   scrollContainerRef: React.RefObject<InvertedScroll>;
-  state = { lightboxMedia: [], lightboxStartIndex: 0, isLightboxOpen: false, rendered: false };
+  state = { rendered: false };
 
   constructor(props) {
     super(props);
@@ -99,11 +101,15 @@ export class ChatView extends React.Component<Properties, State> {
 
     const lightboxStartIndex = lightboxMedia.indexOf(media);
 
-    this.setState({ lightboxMedia, lightboxStartIndex, isLightboxOpen: true });
+    this.props.openLightbox({ media: lightboxMedia, startingIndex: lightboxStartIndex });
   };
 
-  closeLightBox = () => {
-    this.setState({ isLightboxOpen: false });
+  openMessageInfo = (messageId: number) => {
+    this.props.openMessageInfo({ roomId: this.props.id, messageId });
+
+    if (!this.props.isSecondarySidekickOpen) {
+      this.props.toggleSecondarySidekick();
+    }
   };
 
   formatDayHeader(dateString: string): string {
@@ -158,15 +164,23 @@ export class ChatView extends React.Component<Properties, State> {
                 onDelete={this.props.deleteMessage}
                 onEdit={this.props.editMessage}
                 onReply={this.props.onReply}
+                onReportUser={this.props.onReportUser}
+                onInfo={this.openMessageInfo}
                 parentMessageText={message.parentMessageText}
                 parentSenderIsCurrentUser={this.isUserOwnerOfMessage(message.parentMessage)}
                 parentSenderFirstName={message.parentMessage?.sender?.firstName}
                 parentSenderLastName={message.parentMessage?.sender?.lastName}
+                parentMessageMediaUrl={message?.parentMessageMedia?.url}
+                parentMessageMediaName={message.parentMessageMedia?.name}
                 getUsersForMentions={this.searchMentionableUsers}
                 showSenderAvatar={this.props.showSenderAvatar}
                 showTimestamp={messageRenderProps.showTimestamp}
                 showAuthorName={messageRenderProps.showAuthorName}
                 onHiddenMessageInfoClick={this.props.onHiddenMessageInfoClick}
+                loadAttachmentDetails={this.props.loadAttachmentDetails}
+                sendEmojiReaction={this.props.sendEmojiReaction}
+                reactions={message.reactions}
+                messagesFetchStatus={this.props.messagesFetchStatus}
                 {...message}
               />
             </div>
@@ -223,23 +237,8 @@ export class ChatView extends React.Component<Properties, State> {
   }
 
   render() {
-    const { isLightboxOpen, lightboxMedia, lightboxStartIndex } = this.state;
-
     return (
       <div className={classNames('channel-view', this.props.className)}>
-        {isLightboxOpen && (
-          <Lightbox
-            // since we are displaying images from a local blob url (instead of a cloudinary url),
-            // we need to provide a custom provider which just returns the src directly.
-            provider={{
-              fitWithinBox: () => {},
-              getSource: ({ src }) => src,
-            }}
-            items={lightboxMedia}
-            startingIndex={lightboxStartIndex}
-            onClose={this.closeLightBox}
-          />
-        )}
         <InvertedScroll
           className='channel-view__inverted-scroll'
           isScrollbarHidden={this.props.isSecondarySidekickOpen}
@@ -256,10 +255,10 @@ export class ChatView extends React.Component<Properties, State> {
                 <Waypoint onEnter={this.props.onFetchMore} />
               </div>
             )}
-            {this.props.messages.length > 0 && this.renderMessages()}
             {!this.props.hasLoadedMessages && this.props.messagesFetchStatus !== MessagesFetchState.FAILED && (
               <ChatSkeleton conversationId={this.props.id} />
             )}
+            {this.props.messages.length > 0 && this.renderMessages()}
           </div>
 
           {this.props.messagesFetchStatus === MessagesFetchState.FAILED && (

@@ -1,14 +1,13 @@
 import { expectSaga } from 'redux-saga-test-plan';
-import * as matchers from 'redux-saga-test-plan/matchers';
 
-import { mapMessageSenders } from './utils.matrix';
+import { mapMessageSenders, mapNotificationSenders } from './utils.matrix';
 import { getZEROUsers } from '../channels-list/api';
-import { chat } from '../../lib/chat';
 import { StoreBuilder } from '../test/store';
 import { rootReducer } from '../reducer';
 import { call } from 'redux-saga/effects';
-
-const chatClient = { getMessageByRoomId: () => {} };
+import { getLocalZeroUsersMap } from './saga';
+import { getZEROUsers as getZEROUsersAPI } from '../channels-list/api';
+import { batchDownloadFiles } from '../../lib/chat';
 
 describe(mapMessageSenders, () => {
   let messages: any;
@@ -100,76 +99,112 @@ describe(mapMessageSenders, () => {
       profileImage: 'image-url-2',
     });
   });
+});
 
-  it('sets the parentMessage to message if present in the message list', async () => {
-    const initialState = {
-      normalized: {
-        users: {
-          'user-1': users[0],
-          'user-2': users[1],
-        },
-      },
-    };
+describe(mapNotificationSenders, () => {
+  let notifications;
+  let users;
 
-    const parentMessage = messages[0];
-    messages[1].parentMessageId = parentMessage.id; // make 2nd message in the list a reply to the first
-
-    await expectSaga(mapMessageSenders, messages, 'channel-id').withState(initialState).run();
-
-    expect(messages[1].parentMessage).toEqual(messages[0]); // check if the parent message is assigned properly
-  });
-
-  it('sets the parentMessage to message if not present in the message list but IS present in state', async () => {
-    const messages = [
-      { id: '1', parentMessageId: 'existing-message-1', message: 'message-1', sender: { userId: 'matrix-1' } } as any,
-    ];
-    const initialState = new StoreBuilder()
-      .withUsers({ userId: 'user-1', matrixId: 'matrix-1' })
-      .withConversationList({ id: '1', messages: [{ id: 'existing-message-1', message: 'the parent!' } as any] });
-
-    await expectSaga(mapMessageSenders, messages, 'channel-id').withState(initialState.build()).run();
-
-    expect(messages[0].parentMessageText).toEqual('the parent!');
-  });
-
-  it('calls matrix API to fetch parent message if not present in the message list OR state', async () => {
-    const initialState = {
-      normalized: {
-        users: {
-          'user-1': users[0],
-          'user-2': users[1],
-        },
-      },
-    };
-
-    const oldMessage = {
-      id: 'some-very-old-message-id',
-      sender: { userId: 'matrix-user-1', firstName: '' },
-      message: 'parent message',
-    };
-    messages[1].parentMessageId = oldMessage.id; // 2nd message's parent is a very old message (so not present in current list)
-
-    await expectSaga(mapMessageSenders, messages, 'channel-id')
-      .provide([
-        [matchers.call.fn(chat.get), chatClient],
-        [matchers.call.fn(chatClient.getMessageByRoomId), oldMessage],
-      ])
-      .withState(initialState)
-      .call(chat.get)
-      .call([chatClient, chatClient.getMessageByRoomId], 'channel-id', 'some-very-old-message-id')
-      .run();
-
-    expect(messages[1].parentMessage).toEqual({
-      id: 'some-very-old-message-id',
-      // parent message's sender is also mapped to a ZERO user
-      sender: {
+  beforeEach(() => {
+    users = [
+      {
         userId: 'user-1',
         matrixId: 'matrix-user-1',
         firstName: 'Test',
         lastName: 'User 1',
-        profileImage: 'image-url-1',
+        profileImage: 'mxc://image-url-1',
+        profileId: 'profile-1',
       },
-      message: 'parent message',
+      {
+        userId: 'user-2',
+        matrixId: 'matrix-user-2',
+        firstName: 'Test',
+        lastName: 'User 2',
+        profileImage: 'mxc://image-url-2',
+        profileId: 'profile-2',
+      },
+    ];
+
+    notifications = [
+      { id: '1', content: { body: 'notification 1' }, sender: { userId: 'matrix-user-1', firstName: '' } },
+      { id: '2', content: { body: 'notification 2' }, sender: { userId: 'matrix-user-2', firstName: '' } },
+    ];
+  });
+
+  it('replaces local data with actual ZERO user data and downloads profile images', async () => {
+    const notifications = [
+      { id: '1', content: { body: 'notification 1' }, sender: { userId: 'matrix-user-1', firstName: '' } },
+    ];
+    const initialState = new StoreBuilder().withUsers({ userId: 'user-id-1', firstName: 'my test name' });
+
+    const { returnValue } = await expectSaga(mapNotificationSenders, notifications)
+      .provide([
+        [call(getLocalZeroUsersMap), {}],
+        [
+          call(getZEROUsersAPI, ['matrix-user-1']),
+          [
+            {
+              userId: 'zero-user-id',
+              matrixId: 'matrix-user-1',
+              firstName: 'First name',
+              lastName: 'Last name',
+              profileId: 'profile-id',
+              profileImage: 'mxc://image-url',
+            },
+          ],
+        ],
+        [call(batchDownloadFiles, ['mxc://image-url'], true), { 'mxc://image-url': 'downloaded-image-url' }],
+      ])
+      .withReducer(rootReducer, initialState.build())
+      .run();
+
+    expect(returnValue[0].sender).toEqual({
+      userId: 'zero-user-id',
+      matrixId: 'matrix-user-1',
+      firstName: 'First name',
+      lastName: 'Last name',
+      profileId: 'profile-id',
+      profileImage: 'downloaded-image-url',
+    });
+  });
+
+  it('maps notification senders to ZERO users if present in state', async () => {
+    const initialState = {
+      normalized: {
+        users: {
+          'user-1': users[0],
+          'user-2': users[1],
+        },
+      },
+    };
+
+    const { returnValue } = await expectSaga(mapNotificationSenders, notifications)
+      .provide([
+        [
+          call(getLocalZeroUsersMap),
+          {
+            'matrix-user-1': users[0],
+            'matrix-user-2': users[1],
+          },
+        ],
+        [
+          call(batchDownloadFiles, ['mxc://image-url-1', 'mxc://image-url-2'], true),
+          {
+            'mxc://image-url-1': 'downloaded-url-1',
+            'mxc://image-url-2': 'downloaded-url-2',
+          },
+        ],
+      ])
+      .withState(initialState)
+      .run();
+
+    expect(returnValue[0].sender).toEqual({
+      ...users[0],
+      profileImage: 'downloaded-url-1',
+    });
+    expect(returnValue[1].sender).toEqual({
+      ...users[1],
+      profileImage: 'downloaded-url-2',
     });
   });
 });

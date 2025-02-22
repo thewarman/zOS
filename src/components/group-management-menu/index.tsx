@@ -1,19 +1,34 @@
 import * as React from 'react';
 
-import { IconDotsHorizontal, IconEdit5, IconInfoCircle, IconPlus, IconUserRight1 } from '@zero-tech/zui/icons';
-import { DropdownMenu } from '@zero-tech/zui/components';
+import {
+  IconBell1,
+  IconBellOff1,
+  IconEdit5,
+  IconInfoCircle,
+  IconPlus,
+  IconUserRight1,
+  IconDotsHorizontal,
+  IconAlertCircle,
+} from '@zero-tech/zui/icons';
+import { DropdownMenu } from '@zero-tech/zui/components/DropdownMenu';
 
 import './styles.scss';
 
 export interface Properties {
   canAddMembers: boolean;
+  canReportUser: boolean;
   canLeaveRoom: boolean;
   canEdit: boolean;
   canViewGroupInformation: boolean;
+  isRoomMuted: boolean;
+
   onStartAddMember: () => void;
   onLeave: () => void;
   onEdit: () => void;
   onViewGroupInformation: () => void;
+  onMute: () => void;
+  onUnmute: () => void;
+  onReportUser: () => void;
 }
 
 interface State {}
@@ -38,6 +53,18 @@ export class GroupManagementMenu extends React.Component<Properties, State> {
     this.props.onViewGroupInformation();
   };
 
+  toggleMuteNotifications = () => {
+    if (this.props.isRoomMuted) {
+      this.props.onUnmute();
+    } else {
+      this.props.onMute();
+    }
+  };
+
+  reportUser = () => {
+    this.props.onReportUser();
+  };
+
   renderMenuItem(icon, label) {
     return (
       <div className={'menu-item'}>
@@ -48,6 +75,15 @@ export class GroupManagementMenu extends React.Component<Properties, State> {
 
   get dropdownMenuItems() {
     const menuItems = [];
+
+    menuItems.push({
+      id: 'mute_notifications',
+      label: this.renderMenuItem(
+        this.props.isRoomMuted ? <IconBellOff1 size={20} /> : <IconBell1 size={20} />,
+        this.props.isRoomMuted ? 'Unmute Notifications' : 'Mute Notifications'
+      ),
+      onSelect: this.toggleMuteNotifications,
+    });
 
     if (this.props.canAddMembers) {
       menuItems.push({
@@ -70,6 +106,14 @@ export class GroupManagementMenu extends React.Component<Properties, State> {
         id: 'edit_group',
         label: this.renderMenuItem(<IconEdit5 size={20} />, 'Edit Group'),
         onSelect: this.editGroup,
+      });
+    }
+
+    if (this.props.canReportUser) {
+      menuItems.push({
+        id: 'report_user',
+        label: this.renderMenuItem(<IconAlertCircle color='red' size={20} />, 'Report User'),
+        onSelect: this.reportUser,
       });
     }
 

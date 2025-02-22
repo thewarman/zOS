@@ -22,6 +22,11 @@ import { saga as groupManagement } from './group-management/saga';
 import { saga as messageInfo } from './message-info/saga';
 import { saga as userProfile } from './user-profile/saga';
 import { saga as background } from './background/saga';
+import { saga as accountManagement } from './account-management/saga';
+import { saga as posts } from './posts/saga';
+import { saga as notifications } from './notifications/saga';
+import { saga as reportUser } from './report-user/saga';
+import { saga as thirdweb } from './thirdweb/saga';
 
 export function* rootSaga() {
   const allSagas = {
@@ -47,6 +52,11 @@ export function* rootSaga() {
     messageInfo,
     userProfile,
     background,
+    accountManagement,
+    posts,
+    notifications,
+    reportUser,
+    thirdweb,
   };
 
   yield all(

@@ -1,0 +1,109 @@
+@use '~@zero-tech/zui/styles/theme' as theme;
+
+@import '../../../../glass';
+
+.post-input-container {
+  margin-top: 56px;
+
+  &__create-outer {
+    display: flex;
+    gap: 8px;
+  }
+
+  &__create-inner {
+    align-items: flex-end;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    position: relative;
+    margin-top: 8px;
+  }
+
+  &__input {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 16px;
+    height: auto;
+    outline: none;
+    resize: none;
+    width: 100%;
+  }
+
+  &__image {
+    width: 100%;
+  }
+
+  &__emoji-picker-container {
+    position: absolute;
+    left: 0;
+    top: 70px;
+    z-index: 12;
+    color: theme.$color-greyscale-11;
+  }
+
+  &__icon-wrapper {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  &__actions {
+    display: flex;
+    width: 100%;
+    justify-content: space-between;
+
+    svg {
+      color: var(--color-secondary-11) !important;
+    }
+  }
+
+  &__wrapper {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  &__error {
+    color: var(--color-failure-11);
+    font-size: 12px;
+    margin: 0;
+  }
+
+  &__button {
+    border-radius: 8px;
+  }
+
+  &__avatar {
+    pointer-events: none;
+  }
+
+  &__drop-zone-text-area {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 0;
+  }
+
+  &__loading {
+    background: var(--color-secondary-9);
+    height: 2px;
+    left: 0;
+    position: absolute;
+    top: calc(100% - 8px - 1px);
+    width: 0;
+  }
+
+  &__input {
+    position: relative;
+  }
+
+  &__characters {
+    color: var(--color-secondary-11);
+    font-size: 12px;
+    margin: 0;
+
+    &[data-is-too-long] {
+      color: var(--color-failure-11);
+    }
+  }
+}

@@ -1,0 +1,193 @@
+@use '~@zero-tech/zui/styles/theme' as theme;
+@import '../../../../glass';
+@import '../../../../animation';
+
+.Container {
+  display: flex;
+  gap: 8px;
+
+  &:not([has-author]) {
+    [class*='_Header'] {
+      align-items: center;
+      margin-top: 8px;
+    }
+  }
+
+  &[has-author] {
+    [class*='_Header'] {
+      margin-top: 4px;
+    }
+  }
+
+  &[data-variant='expanded'] {
+    article {
+      gap: 16px;
+    }
+  }
+
+  &[data-variant='default'] {
+    padding: 12px 18px 12px 18px;
+
+    &:hover {
+      background-color: rgba(52, 56, 60, 0.2);
+    }
+
+    .Body {
+      padding-top: 4px;
+    }
+  }
+}
+
+.Post {
+  padding: 0;
+  flex: 1;
+}
+
+.Body {
+  font-size: 14px;
+
+  > p:first-child {
+    margin-top: 0;
+  }
+
+  > p:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.Text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.Details {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  .Wrapper {
+    display: flex;
+    gap: 4px;
+    flex-direction: column;
+  }
+}
+
+.Avatar {
+  pointer-events: none;
+}
+
+.Name {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+
+  font-size: 14px !important;
+  font-weight: 600;
+  line-height: 14px;
+
+  .Date,
+  span {
+    font-weight: 400;
+  }
+
+  .Date {
+    font-size: 12px;
+  }
+}
+
+.UserName {
+  font-size: 12px !important;
+  line-height: normal;
+
+  @include glass-text-secondary-color;
+}
+
+.Date {
+  font-size: 12px;
+  line-height: normal;
+
+  @include glass-text-secondary-color;
+}
+
+.BlockImage {
+  position: relative;
+  width: 100%;
+
+  img {
+    display: block;
+    margin: auto;
+    max-width: 100%;
+    max-height: 520px;
+    border-radius: 16px;
+    border: 1px solid rgba(52, 56, 60, 0.5);
+  }
+
+  animation: fadein 1s ease-in forwards;
+}
+
+.ImagePlaceholderContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: auto;
+  max-width: 100%;
+  max-height: 520px;
+}
+
+.ImagePlaceholder {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  filter: blur(2px);
+  background-color: rgba(54, 93, 87, 0.2);
+  border: 1px solid rgba(52, 56, 60, 0.5);
+}
+
+.Loading {
+  background: linear-gradient(90deg, rgba(54, 93, 87, 0.2) 25%, rgba(54, 93, 87, 0.4) 50%, rgba(54, 93, 87, 0.2) 75%);
+  background-size: 600px 100%;
+  animation: fadein 1s ease-in forwards, loadingShimmer 2s infinite linear;
+}
+
+.Failed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: none;
+  border: none;
+  color: theme.$color-failure-11;
+}
+
+.Actions {
+  display: inherit;
+  gap: inherit;
+  justify-content: space-between;
+  padding-top: 8px;
+
+  > div {
+    display: inherit;
+    gap: inherit;
+  }
+
+  width: 100%;
+
+  &[data-variant='expanded'] {
+    padding: 16px 0;
+    gap: 16px;
+
+    border: 1px solid rgba(52, 56, 60, 0.5);
+    border-left: none;
+    border-right: none;
+  }
+}
+
+.Wrapper {
+  &[data-variant='default'] {
+    cursor: pointer;
+  }
+}
+
+.Link {
+  text-decoration: underline;
+  color: var(--color-secondary-11);
+}

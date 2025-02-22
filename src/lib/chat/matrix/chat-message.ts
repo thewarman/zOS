@@ -1,16 +1,20 @@
 import { CustomEventType, MatrixConstants, MembershipStateType, NotifiableEventType } from './types';
 import { EventType, MsgType, MatrixClient as SDKMatrixClient } from 'matrix-js-sdk';
-import { decryptFile } from './media';
 import { AdminMessageType, Message, MessageSendStatus } from '../../../store/messages';
 import { getObjectDiff, parsePlainBody } from './utils';
 import { PowerLevels } from '../types';
 
-async function parseMediaData(matrixMessage) {
+export async function parseMediaData(matrixMessage) {
   const { content } = matrixMessage;
 
   let media = null;
   try {
-    if (content?.msgtype === MsgType.Image) {
+    if (
+      content?.msgtype === MsgType.Image ||
+      content?.msgtype === MsgType.Video ||
+      content?.msgtype === MsgType.File ||
+      content?.msgtype === MsgType.Audio
+    ) {
       media = await buildMediaObject(content);
     }
   } catch (e) {
@@ -24,18 +28,23 @@ async function parseMediaData(matrixMessage) {
   };
 }
 
-async function buildMediaObject(content) {
+export async function buildMediaObject(content) {
+  let mediaType;
+  if (content.msgtype === MsgType.Image) mediaType = 'image';
+  else if (content.msgtype === MsgType.Video) mediaType = 'video';
+  else if (content.msgtype === MsgType.File) mediaType = 'file';
+  else if (content.msgtype === MsgType.Audio) mediaType = 'audio';
   if (content.file && content.info) {
-    const blob = await decryptFile(content.file, content.info);
     return {
-      url: URL.createObjectURL(blob),
-      type: 'image',
+      url: null,
+      type: mediaType,
+      file: { ...content.file },
       ...content.info,
     };
   } else if (content.url) {
     return {
       url: content.url,
-      type: 'image',
+      type: mediaType,
       ...content.info,
     };
   }
@@ -53,9 +62,14 @@ export async function mapMatrixMessage(matrixMessage, sdkMatrixClient: SDKMatrix
     messageContent = parsePlainBody(content.body);
   }
 
+  const message =
+    content.msgtype === MsgType.Image || content.msgtype === MsgType.Video || content.msgtype === MsgType.Audio
+      ? ''
+      : messageContent;
+
   return {
     id: event_id,
-    message: messageContent,
+    message,
     createdAt: origin_server_ts,
     updatedAt: updatedAt,
     sender: {
@@ -75,10 +89,10 @@ export async function mapMatrixMessage(matrixMessage, sdkMatrixClient: SDKMatrix
       image: null,
     },
     parentMessageText: '',
+    parentMessageMedia: null,
     parentMessageId: parent ? parent['m.in_reply_to']?.event_id : null,
     isHidden: content?.msgtype === MatrixConstants.BAD_ENCRYPTED_MSGTYPE,
     ...(await parseMediaData(matrixMessage)),
-    readBy: [],
   };
 }
 
@@ -104,25 +118,69 @@ export function mapEventToAdminMessage(matrixMessage): Message {
     hidePreview: false,
     preview: null,
     sendStatus: MessageSendStatus.SUCCESS,
+    isPost: false,
+  };
+}
+
+export async function mapEventToPostMessage(matrixMessage, sdkMatrixClient: SDKMatrixClient) {
+  const { event_id, content, origin_server_ts, sender: senderId } = matrixMessage;
+
+  const senderData = sdkMatrixClient.getUser(senderId);
+  const { media, image, rootMessageId } = await parseMediaData(matrixMessage);
+
+  return {
+    id: event_id,
+    message: content.body,
+    createdAt: origin_server_ts,
+    updatedAt: 0,
+    optimisticId: content.optimisticId,
+
+    sender: {
+      userId: senderId,
+      firstName: senderData?.displayName,
+      lastName: '',
+      profileImage: '',
+      profileId: '',
+      displaySubHandle: '',
+    },
+
+    isAdmin: false,
+    mentionedUsers: [],
+    hidePreview: false,
+    preview: null,
+    sendStatus: MessageSendStatus.SUCCESS,
+    isPost: true,
+    media,
+    image,
+    rootMessageId,
+    reactions: {},
   };
 }
 
 function getAdminDataFromEventType(type, content, sender, targetUserId, previousContent) {
   switch (type) {
-    case CustomEventType.USER_JOINED_INVITER_ON_ZERO:
-      return { type: AdminMessageType.JOINED_ZERO, inviterId: content.inviterId, inviteeId: content.inviteeId };
     case EventType.RoomMember:
-      return getRoomMemberAdminData(content, targetUserId);
+      return getRoomMemberAdminData(content, targetUserId, previousContent);
     case EventType.RoomCreate:
       return { type: AdminMessageType.CONVERSATION_STARTED, userId: sender };
     case EventType.RoomPowerLevels:
       return getRoomPowerLevelsChangedAdminData(content, previousContent);
+    case EventType.Reaction:
+      return getRoomReactionAdminData(content, sender);
     default:
       return null;
   }
 }
 
-function getRoomMemberAdminData(content, targetUserId) {
+function getRoomReactionAdminData(content, sender) {
+  return { type: AdminMessageType.REACTION, userId: sender, amount: content.amount };
+}
+
+function getRoomMemberAdminData(content, targetUserId, previousContent?) {
+  if (previousContent?.avatar_url !== content.avatar_url) {
+    return { type: AdminMessageType.MEMBER_AVATAR_CHANGED, userId: targetUserId };
+  }
+
   switch (content.membership) {
     case MembershipStateType.Leave:
       return { type: AdminMessageType.MEMBER_LEFT_CONVERSATION, userId: targetUserId };
@@ -198,6 +256,7 @@ export function mapToLiveRoomEvent(liveEvent) {
     id: event.event_id,
     type: eventType,
     createdAt: event.origin_server_ts,
+    roomId: event.room_id,
     sender: {
       userId: event.sender,
     },
@@ -208,6 +267,7 @@ function convertToNotifiableEventType(eventType) {
   switch (eventType) {
     case EventType.RoomMessageEncrypted:
     case EventType.RoomMessage:
+    case CustomEventType.ROOM_POST:
       return NotifiableEventType.RoomMessage;
     default:
       return '';

@@ -1,0 +1,68 @@
+@use '~@zero-tech/zui/styles/theme' as theme;
+@use '../../variables.scss' as variables;
+
+.Loading {
+  text-align: center;
+  padding: 24px;
+}
+
+.LoadingContainer,
+.LoadingMoreContainer {
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+}
+
+.LoadingMoreContainer {
+  padding: 10px;
+}
+
+.Error {
+  color: theme.$color-error-transparency-11;
+  text-align: center;
+  padding: 12px 24px 24px 24px;
+}
+
+.NoNotifications {
+  text-align: center;
+  color: #666;
+  padding: 16px 32px 32px 32px;
+}
+
+.Container {
+  width: 100%;
+  max-width: 600px;
+  min-width: 600px;
+
+  margin: 24px auto;
+
+  pointer-events: all;
+}
+
+.Body {
+  display: flex;
+  flex-direction: column;
+  gap: variables.$default-gap;
+  padding: 0;
+}
+
+.Notifications {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+
+  > li {
+    padding: 16px 18px 16px 18px;
+
+    border-bottom: 1px solid rgba(52, 56, 60, 0.75);
+
+    &:hover {
+      background-color: rgba(52, 56, 60, 0.2);
+    }
+  }
+}
+
+.Tabs {
+  margin: variables.$default-padding;
+  margin-bottom: 0;
+}

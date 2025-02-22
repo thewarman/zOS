@@ -11,18 +11,19 @@ export enum Events {
   ChannelInvitationReceived = 'chat/channel/invitationReceived',
   UserLeftChannel = 'chat/channel/userLeft',
   UserJoinedChannel = 'chat/channel/userJoined',
-  UserPresenceChanged = 'chat/user/presenceChanged',
   RoomNameChanged = 'chat/roomNameChanged',
   RoomAvatarChanged = 'chat/roomAvatarChanged',
+  RoomGroupTypeChanged = 'chat/roomGroupTypeChanged',
   OtherUserJoinedChannel = 'chat/channel/otherUserJoined',
   OtherUserLeftChannel = 'chat/channel/otherUserLeft',
   LiveRoomEventReceived = 'chat/message/liveRoomEventReceived',
   ChatConnectionComplete = 'chat/connection/complete',
-  RoomFavorited = 'chat/channel/roomFavorited',
-  RoomUnfavorited = 'chat/channel/roomUnfavorited',
   RoomMemberTyping = 'chat/channel/roomMemberTyping',
   RoomMemberPowerLevelChanged = 'chat/channel/roomMemberPowerLevelChanged',
   ReadReceiptReceived = 'chat/message/readReceiptReceived',
+  RoomLabelChange = 'chat/channel/roomLabelChange',
+  PostMessageReactionChange = 'chat/message/postMessageReactionChange',
+  MessageEmojiReactionChange = 'chat/message/messageEmojiReactionChange',
 }
 
 let theBus;
@@ -76,25 +77,31 @@ export function createChatConnection(userId, chatAccessToken, chatClient: Chat) 
     const receiveDeleteMessage = (channelId, messageId) =>
       emit({ type: Events.MessageDeleted, payload: { channelId, messageId } });
     const receiveUnreadCount = (channelId, unreadCount) =>
-      emit({ type: Events.UnreadCountChanged, payload: { channelId, unreadCount } });
+      emit({
+        type: Events.UnreadCountChanged,
+        payload: { channelId, unreadCount: { total: unreadCount.total, highlight: unreadCount.highlight } },
+      });
     const onUserLeft = (channelId, userId) => emit({ type: Events.UserLeftChannel, payload: { channelId, userId } });
     const onUserJoinedChannel = (channel) => emit({ type: Events.UserJoinedChannel, payload: { channel } });
-    const onUserPresenceChanged = (matrixId, isOnline, lastSeenAt) =>
-      emit({ type: Events.UserPresenceChanged, payload: { matrixId, isOnline, lastSeenAt } });
     const onRoomNameChanged = (roomId, name) => emit({ type: Events.RoomNameChanged, payload: { id: roomId, name } });
     const onRoomAvatarChanged = (roomId, url) => emit({ type: Events.RoomAvatarChanged, payload: { id: roomId, url } });
+    const onRoomGroupTypeChanged = (roomId, groupType) =>
+      emit({ type: Events.RoomGroupTypeChanged, payload: { id: roomId, groupType } });
     const onOtherUserJoinedChannel = (channelId, user) =>
       emit({ type: Events.OtherUserJoinedChannel, payload: { channelId, user } });
     const onOtherUserLeftChannel = (channelId, user) =>
       emit({ type: Events.OtherUserLeftChannel, payload: { channelId, user } });
     const receiveLiveRoomEvent = (eventData) => emit({ type: Events.LiveRoomEventReceived, payload: { eventData } });
-    const roomFavorited = (roomId) => emit({ type: Events.RoomFavorited, payload: { roomId } });
-    const roomUnfavorited = (roomId) => emit({ type: Events.RoomUnfavorited, payload: { roomId } });
     const roomMemberTyping = (roomId, userIds) => emit({ type: Events.RoomMemberTyping, payload: { roomId, userIds } });
     const roomMemberPowerLevelChanged = (roomId, matrixId, powerLevel) =>
       emit({ type: Events.RoomMemberPowerLevelChanged, payload: { roomId, matrixId, powerLevel } });
-    const readReceiptReceived = (messageId, userId) =>
-      emit({ type: Events.ReadReceiptReceived, payload: { messageId, userId } });
+    const readReceiptReceived = (messageId, userId, roomId) =>
+      emit({ type: Events.ReadReceiptReceived, payload: { messageId, userId, roomId } });
+    const roomLabelChange = (roomId, labels) => emit({ type: Events.RoomLabelChange, payload: { roomId, labels } });
+    const postMessageReactionChange = (roomId, reaction) =>
+      emit({ type: Events.PostMessageReactionChange, payload: { roomId, reaction } });
+    const messageEmojiReactionChange = (roomId, reaction) =>
+      emit({ type: Events.MessageEmojiReactionChange, payload: { roomId, reaction } });
 
     chatClient.initChat({
       receiveNewMessage,
@@ -103,17 +110,18 @@ export function createChatConnection(userId, chatAccessToken, chatClient: Chat) 
       receiveUnreadCount,
       onUserLeft,
       onUserJoinedChannel,
-      onUserPresenceChanged,
       onRoomNameChanged,
       onRoomAvatarChanged,
+      onRoomGroupTypeChanged,
       onOtherUserJoinedChannel,
       onOtherUserLeftChannel,
       receiveLiveRoomEvent,
-      roomFavorited,
-      roomUnfavorited,
       roomMemberTyping,
       roomMemberPowerLevelChanged,
       readReceiptReceived,
+      roomLabelChange,
+      postMessageReactionChange,
+      messageEmojiReactionChange,
     });
 
     connectionPromise = chatClient.connect(userId, chatAccessToken);

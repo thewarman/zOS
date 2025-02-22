@@ -5,6 +5,8 @@ import { ConversationItem, Properties } from '.';
 import { ContentHighlighter } from '../../../content-highlighter';
 import { Avatar } from '@zero-tech/zui/components';
 import { bem } from '../../../../lib/bem';
+import { IconBellOff1 } from '@zero-tech/zui/icons';
+import { DefaultRoomLabels } from '../../../../store/channels';
 
 const c = bem('.conversation-item');
 
@@ -16,8 +18,9 @@ describe(ConversationItem, () => {
       myUserId: '',
       activeConversationId: '',
       onClick: () => null,
-      onFavoriteRoom: () => null,
-      onUnfavoriteRoom: () => null,
+      onAddLabel: () => null,
+      onRemoveLabel: () => null,
+      isCollapsed: false,
       ...props,
     };
 
@@ -62,6 +65,22 @@ describe(ConversationItem, () => {
     expect(title(wrapper)).toStrictEqual('My Named Conversation');
   });
 
+  it('renders muted icon if conversation is muted', function () {
+    const wrapper = subject({
+      conversation: { ...convoWith(), id: 'test-conversation-id', labels: [DefaultRoomLabels.MUTE] },
+    });
+
+    expect(wrapper).toHaveElement(IconBellOff1);
+  });
+
+  it('does not render muted icon if conversation is not muted', function () {
+    const wrapper = subject({
+      conversation: { ...convoWith(), id: 'test-conversation-id', labels: [] },
+    });
+
+    expect(wrapper).not.toHaveElement(IconBellOff1);
+  });
+
   it('publishes click event', function () {
     const onClick = jest.fn();
     const wrapper = subject({ onClick, conversation: { ...convoWith(), id: 'test-conversation-id' } });
@@ -73,27 +92,39 @@ describe(ConversationItem, () => {
 
   it('does not show unread count if there are no unread messages', function () {
     const wrapper = subject({
-      conversation: { id: 'id', unreadCount: 0, otherMembers: [] } as any,
+      conversation: { id: 'id', unreadCount: { total: 0, highlight: 0 }, otherMembers: [] } as any,
     });
 
     expect(wrapper).not.toHaveElement(c('unread-count'));
   });
 
   it('shows unread message count', function () {
-    const wrapper = subject({ conversation: { id: 'id', unreadCount: 7, otherMembers: [] } as any });
+    const wrapper = subject({
+      conversation: { id: 'id', unreadCount: { total: 7, highlight: 0 }, otherMembers: [] } as any,
+    });
 
     expect(wrapper.find(c('unread-count'))).toHaveText('7');
   });
 
   it('renders the message preview', function () {
-    const wrapper = subject({ conversation: { messagePreview: 'I said something here', otherMembers: [] } as any });
+    const wrapper = subject({
+      conversation: {
+        messagePreview: 'I said something here',
+        otherMembers: [],
+        unreadCount: { total: 0, highlight: 0 },
+      } as any,
+    });
 
     expect(wrapper.find(ContentHighlighter)).toHaveProp('message', 'I said something here');
   });
 
   it('renders the otherMembersTyping', function () {
     const wrapper = subject({
-      conversation: { otherMembersTyping: ['Johnny'], otherMembers: [] } as any,
+      conversation: {
+        otherMembersTyping: ['Johnny'],
+        otherMembers: [],
+        unreadCount: { total: 0, highlight: 0 },
+      } as any,
     });
 
     expect(wrapper.find(ContentHighlighter)).toHaveProp('message', 'Johnny is typing...');
@@ -105,6 +136,7 @@ describe(ConversationItem, () => {
         messagePreview: 'I said something here',
         otherMembersTyping: ['Dale', 'Dom'],
         otherMembers: [],
+        unreadCount: { total: 0, highlight: 0 },
       } as any,
     });
 
@@ -112,27 +144,15 @@ describe(ConversationItem, () => {
   });
 
   it('renders the previewDisplayDate', function () {
-    const wrapper = subject({ conversation: { previewDisplayDate: 'Aug 1, 2021', otherMembers: [] } as any });
+    const wrapper = subject({
+      conversation: {
+        previewDisplayDate: 'Aug 1, 2021',
+        otherMembers: [],
+        unreadCount: { total: 0, highlight: 0 },
+      } as any,
+    });
 
     expect(wrapper.find(c('timestamp'))).toHaveText('Aug 1, 2021');
-  });
-
-  describe('status', () => {
-    it('renders inactive if no other members are online', function () {
-      const wrapper = subject({
-        conversation: { icon: 'icon-url', ...convoWith({ isOnline: false }, { isOnline: false }) },
-      });
-
-      expect(wrapper.find(Avatar)).toHaveProp('statusType', 'offline');
-    });
-
-    it('renders active if any other members are online', function () {
-      const wrapper = subject({
-        conversation: { icon: 'icon-url', ...convoWith({ isOnline: false }, { isOnline: true }) },
-      });
-
-      expect(wrapper.find(Avatar)).toHaveProp('statusType', 'active');
-    });
   });
 });
 
@@ -144,5 +164,6 @@ function convoWith(...otherMembers): any {
   return {
     id: 'convo-id',
     otherMembers,
+    unreadCount: { total: 0, highlight: 0 },
   };
 }

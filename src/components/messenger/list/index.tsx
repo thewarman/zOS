@@ -1,8 +1,7 @@
 import React from 'react';
 import { connectContainer } from '../../../store/redux-container';
 import { RootState } from '../../../store/reducer';
-import { Channel } from '../../../store/channels';
-import { openConversation, onFavoriteRoom, onUnfavoriteRoom } from '../../../store/channels';
+import { Channel, onAddLabel, onRemoveLabel, openConversation, User } from '../../../store/channels';
 import { denormalizeConversations } from '../../../store/channels-list';
 import { compareDatesDesc } from '../../../lib/date';
 import { MemberNetworks } from '../../../store/users/types';
@@ -11,10 +10,10 @@ import {
   Stage as SagaStage,
   back,
   createConversation,
+  createUnencryptedConversation,
   membersSelected,
   startCreateConversation,
 } from '../../../store/create-conversation';
-import { logout } from '../../../store/authentication';
 import { CreateMessengerConversation } from '../../../store/channels-list/types';
 import { closeConversationErrorDialog } from '../../../store/chat';
 
@@ -25,18 +24,22 @@ import { Option } from '../lib/types';
 import { MembersSelectedPayload } from '../../../store/create-conversation/types';
 import { getMessagePreview, previewDisplayDate } from '../../../lib/chat/chat-message';
 import { Modal } from '@zero-tech/zui/components';
+import { IconButton } from '@zero-tech/zui/components/IconButton';
+import { IconChevronLeft, IconChevronRight } from '@zero-tech/zui/icons';
 import { ErrorDialog } from '../../error-dialog';
 import { ErrorDialogContent } from '../../../store/chat/types';
 import { receiveSearchResults } from '../../../store/users';
-import { UserHeader } from './user-header';
+import { CurrentUserDetails } from '../../sidekick/components/current-user-details';
 import { getUserSubHandle } from '../../../lib/user';
 import { VerifyIdDialog } from '../../verify-id-dialog';
 import { RewardsModalContainer } from '../../rewards-modal/container';
-import { closeRewardsDialog, totalRewardsViewed } from '../../../store/rewards';
+import { closeRewardsDialog } from '../../../store/rewards';
 import { InviteDialogContainer } from '../../invite-dialog/container';
-import { openUserProfile } from '../../../store/user-profile';
 import { Button } from '@zero-tech/zui/components/Button';
 import { IconPlus } from '@zero-tech/zui/icons';
+import { GroupTypeDialog } from './group-details-panel/group-type-dialog';
+import { AdminMessageType } from '../../../store/messages';
+import { Header } from '../../sidekick/components/header';
 
 import { bemClassName } from '../../../lib/bem';
 import './styles.scss';
@@ -50,7 +53,6 @@ export interface Properties extends PublicProperties {
   groupUsers: Option[];
   conversations: (Channel & { messagePreview?: string; previewDisplayDate?: string })[];
   isFetchingExistingConversations: boolean;
-  isFirstTimeLogin: boolean;
   userName: string;
   userHandle: string;
   userAvatarUrl: string;
@@ -59,40 +61,43 @@ export interface Properties extends PublicProperties {
   activeConversationId?: string;
   joinRoomErrorContent: ErrorDialogContent;
   isRewardsDialogOpen: boolean;
-  showRewardsTooltip: boolean;
   hasUnviewedRewards: boolean;
+  isSecondaryConversationDataLoaded: boolean;
+  users: { [id: string]: User };
 
   startCreateConversation: () => void;
   back: () => void;
   membersSelected: (payload: MembersSelectedPayload) => void;
   createConversation: (payload: CreateMessengerConversation) => void;
+  createUnencryptedConversation: (payload: CreateMessengerConversation) => void;
   onConversationClick: (payload: { conversationId: string }) => void;
-  logout: () => void;
   receiveSearchResults: (data) => void;
   closeConversationErrorDialog: () => void;
   closeRewardsDialog: () => void;
-  onFavoriteRoom: (payload: { roomId: string }) => void;
-  onUnfavoriteRoom: (payload: { roomId: string }) => void;
-  openUserProfile: () => void;
-  totalRewardsViewed: () => void;
+  onAddLabel: () => void;
+  onRemoveLabel: () => void;
 }
 
 interface State {
   isVerifyIdDialogOpen: boolean;
   isInviteDialogOpen: boolean;
+  isGroupTypeDialogOpen: boolean;
+  isCollapsed: boolean;
 }
 
 export class Container extends React.Component<Properties, State> {
   static mapState(state: RootState): Partial<Properties> {
     const {
       createConversation,
-      registration,
       authentication: { user },
-      chat: { activeConversationId, joinRoomErrorContent },
+      chat: { activeConversationId, joinRoomErrorContent, isSecondaryConversationDataLoaded },
       rewards,
     } = state;
 
-    const conversations = denormalizeConversations(state).map(addLastMessageMeta(state)).sort(byLastMessageOrCreation);
+    const conversations = denormalizeConversations(state)
+      .filter((c) => !c.isSocialChannel)
+      .map(addLastMessageMeta(state))
+      .sort(byLastMessageOrCreation);
     const userHandle = getUserSubHandle(user?.data?.primaryZID, user?.data?.primaryWalletAddress);
     return {
       conversations,
@@ -100,7 +105,6 @@ export class Container extends React.Component<Properties, State> {
       stage: createConversation.stage,
       groupUsers: createConversation.groupUsers,
       isFetchingExistingConversations: createConversation.startGroupChat.isLoading,
-      isFirstTimeLogin: registration.isFirstTimeLogin,
       userName: user?.data?.profileSummary?.firstName || '',
       userHandle,
       userAvatarUrl: user?.data?.profileSummary?.profileImage || '',
@@ -108,8 +112,9 @@ export class Container extends React.Component<Properties, State> {
       myUserId: user?.data?.id,
       joinRoomErrorContent,
       isRewardsDialogOpen: rewards.showRewardsInPopup,
-      showRewardsTooltip: rewards.showRewardsInTooltip,
       hasUnviewedRewards: rewards.showNewRewardsIndicator,
+      isSecondaryConversationDataLoaded,
+      users: state.normalized['users'] || {},
     };
   }
 
@@ -117,33 +122,42 @@ export class Container extends React.Component<Properties, State> {
     return {
       onConversationClick: openConversation,
       createConversation,
+      createUnencryptedConversation,
       startCreateConversation,
       back,
       membersSelected,
-      logout,
       receiveSearchResults,
       closeConversationErrorDialog,
       closeRewardsDialog,
-      onFavoriteRoom,
-      onUnfavoriteRoom,
-      openUserProfile,
-      totalRewardsViewed,
+      onAddLabel,
+      onRemoveLabel,
     };
   }
 
   state = {
     isVerifyIdDialogOpen: false,
     isInviteDialogOpen: false,
+    isGroupTypeDialogOpen: false,
+    isCollapsed: false,
   };
 
   usersInMyNetworks = async (search: string) => {
+    const { users: usersFromState, myUserId, receiveSearchResults } = this.props;
     const users: MemberNetworks[] = await searchMyNetworksByName(search);
 
-    const filteredUsers = users?.filter((user) => user.id !== this.props.myUserId);
+    const mappedFilteredUsers = users
+      ?.filter((user) => user.id !== myUserId)
+      .map((user) => ({
+        ...user,
+        // since redux state has local blob url image
+        image: usersFromState[user.id]?.profileImage ?? user.profileImage,
+        profileImage: usersFromState[user.id]?.profileImage ?? user.profileImage,
+      }));
 
-    this.props.receiveSearchResults(filteredUsers);
+    // Send the filtered results to the state handler
+    receiveSearchResults(mappedFilteredUsers);
 
-    return filteredUsers?.map((user) => ({ ...user, image: user.profileImage }));
+    return mappedFilteredUsers;
   };
 
   startCreateConversation = () => {
@@ -163,8 +177,22 @@ export class Container extends React.Component<Properties, State> {
       name: details.name,
       userIds: details.users.map((u) => u.value),
       image: details.image,
+      groupType: details.groupType,
     };
-    this.props.createConversation(conversation);
+
+    if (details.groupType !== 'encrypted') {
+      this.props.createUnencryptedConversation(conversation);
+    } else {
+      this.props.createConversation(conversation);
+    }
+  };
+
+  collapse = () => {
+    this.setState({ isCollapsed: true });
+  };
+
+  expand = () => {
+    this.setState({ isCollapsed: false });
   };
 
   openVerifyIdDialog = () => {
@@ -181,6 +209,14 @@ export class Container extends React.Component<Properties, State> {
 
   closeInviteDialog = () => {
     this.setState({ isInviteDialogOpen: false });
+  };
+
+  openGroupTypeDialog = () => {
+    this.setState({ isGroupTypeDialogOpen: true });
+  };
+
+  closeGroupTypeDialog = () => {
+    this.setState({ isGroupTypeDialogOpen: false });
   };
 
   closeErrorDialog = () => {
@@ -225,25 +261,29 @@ export class Container extends React.Component<Properties, State> {
     );
   };
 
+  renderGroupTypeDialog = (): JSX.Element => {
+    return (
+      <Modal open={this.state.isGroupTypeDialogOpen} onOpenChange={this.closeGroupTypeDialog}>
+        <GroupTypeDialog onClose={this.closeGroupTypeDialog} />
+      </Modal>
+    );
+  };
+
   renderRewardsDialog = (): JSX.Element => {
     return <RewardsModalContainer onClose={this.props.closeRewardsDialog} />;
   };
 
   renderUserHeader() {
     return (
-      <UserHeader
-        userIsOnline={this.props.userIsOnline}
-        userName={this.props.userName}
-        userHandle={this.props.userHandle}
-        userAvatarUrl={this.props.userAvatarUrl}
-        startConversation={this.startCreateConversation}
-        onLogout={this.props.logout}
-        onVerifyId={this.openVerifyIdDialog}
-        showRewardsTooltip={this.props.showRewardsTooltip}
-        openUserProfile={this.props.openUserProfile}
-        hasUnviewedRewards={this.props.hasUnviewedRewards}
-        totalRewardsViewed={this.props.totalRewardsViewed}
-      />
+      <Header className={this.state.isCollapsed ? { ...cn('collapsed') }.className : ''}>
+        {!this.state.isCollapsed && <CurrentUserDetails />}
+        <IconButton
+          {...cn('collapse-button')}
+          Icon={this.state.isCollapsed ? IconChevronRight : IconChevronLeft}
+          onClick={this.state.isCollapsed ? this.expand : this.collapse}
+        />
+        {!this.state.isCollapsed && <IconButton Icon={IconPlus} onClick={this.startCreateConversation} />}
+      </Header>
     );
   }
 
@@ -258,8 +298,10 @@ export class Container extends React.Component<Properties, State> {
             onConversationClick={this.props.onConversationClick}
             myUserId={this.props.myUserId}
             activeConversationId={this.props.activeConversationId}
-            onFavoriteRoom={this.props.onFavoriteRoom}
-            onUnfavoriteRoom={this.props.onUnfavoriteRoom}
+            onAddLabel={this.props.onAddLabel}
+            onRemoveLabel={this.props.onRemoveLabel}
+            isLabelDataLoaded={this.props.isSecondaryConversationDataLoaded}
+            isCollapsed={this.state.isCollapsed}
           />
         )}
         {this.props.stage === SagaStage.InitiateConversation && (
@@ -274,7 +316,12 @@ export class Container extends React.Component<Properties, State> {
           />
         )}
         {this.props.stage === SagaStage.GroupDetails && (
-          <GroupDetailsPanel users={this.props.groupUsers} onCreate={this.createGroup} onBack={this.props.back} />
+          <GroupDetailsPanel
+            users={this.props.groupUsers}
+            onCreate={this.createGroup}
+            onOpenGroupTypeDialog={this.openGroupTypeDialog}
+            onBack={this.props.back}
+          />
         )}
       </>
     );
@@ -295,17 +342,20 @@ export class Container extends React.Component<Properties, State> {
   }
 
   render() {
+    const isCollapsed = this.state.isCollapsed;
+    const isExpanded = !isCollapsed;
+
     return (
       <>
         {this.props.stage === SagaStage.None && this.renderUserHeader()}
-
         <div {...cn('')}>
           {this.renderCreateConversation()}
           {this.state.isVerifyIdDialogOpen && this.renderVerifyIdDialog()}
           {this.props.joinRoomErrorContent && this.renderErrorDialog()}
           {this.props.isRewardsDialogOpen && this.renderRewardsDialog()}
+          {this.state.isGroupTypeDialogOpen && this.renderGroupTypeDialog()}
         </div>
-        {this.props.stage === SagaStage.None && this.renderFooterButton()}
+        {isExpanded && this.props.stage === SagaStage.None && this.renderFooterButton()}
         {this.renderInviteDialog()}
       </>
     );
@@ -316,11 +366,17 @@ function addLastMessageMeta(state: RootState): any {
   return (conversation) => {
     const sortedMessages = conversation.messages?.sort((a, b) => compareDatesDesc(a.createdAt, b.createdAt)) || [];
 
-    let mostRecentMessage = sortedMessages[0] || conversation.lastMessage;
+    const filteredMessages = sortedMessages.filter(
+      (message) => message?.admin?.type !== AdminMessageType.MEMBER_AVATAR_CHANGED
+    );
+
+    // Use the most recent valid message or fall back to the lastMessage
+    let mostRecentMessage = filteredMessages[0] || conversation.lastMessage;
+
     return {
       ...conversation,
       mostRecentMessage,
-      messagePreview: getMessagePreview(mostRecentMessage, state),
+      messagePreview: getMessagePreview(mostRecentMessage, state, conversation.isOneOnOne),
       previewDisplayDate: previewDisplayDate(mostRecentMessage?.createdAt),
     };
   };

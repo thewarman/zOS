@@ -117,42 +117,19 @@ describe('page-load saga', () => {
     expect(history.replace).not.toHaveBeenCalled();
   });
 
-  describe('showAndroidDownload', () => {
-    function subject(path: string, userAgent: string) {
-      const initialState = { pageload: { showAndroidDownload: false } };
-      return expectSaga(saga)
-        .provide([
-          [call(getHistory), new StubHistory(path)],
-          [call(getCurrentUser), false],
-          [call(getNavigator), stubNavigator(userAgent)],
-          [spawn(redirectOnUserLogin), null],
-        ])
-        .withReducer(rootReducer, initialState as any);
-    }
+  it('redirects to /restricted if on mobile', async () => {
+    const initialState = { pageload: { isComplete: false } };
 
-    it('is false if not on a configured page', async () => {
-      const { storeState } = await subject('/', 'Android').run();
+    history = new StubHistory('/');
+    const { storeState } = await subject(saga)
+      .provide([
+        [call(getNavigator), stubNavigator('Mobi')],
+      ])
+      .withReducer(rootReducer, initialState as any)
+      .run();
 
-      expect(storeState.pageload.showAndroidDownload).toBe(false);
-    });
-
-    it('is false if not an android user agent', async () => {
-      const { storeState } = await subject('/login', 'Chrome').run();
-
-      expect(storeState.pageload.showAndroidDownload).toBe(false);
-    });
-
-    it('is true if the user agent matches and is login page', async () => {
-      const { storeState } = await subject('/login', 'Android').run();
-
-      expect(storeState.pageload.showAndroidDownload).toBe(true);
-    });
-
-    it('is true if the user agent matches and is get-access page', async () => {
-      const { storeState } = await subject('/get-access', 'Android').run();
-
-      expect(storeState.pageload.showAndroidDownload).toBe(true);
-    });
+    expect(history.replace).toHaveBeenCalledWith({ pathname: '/restricted' });
+    expect(storeState.pageload.isComplete).toBe(true);
   });
 });
 

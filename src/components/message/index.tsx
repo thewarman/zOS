@@ -1,25 +1,36 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import classNames from 'classnames';
 import moment from 'moment';
-import { Message as MessageModel, MediaType, EditMessageOptions, MessageSendStatus } from '../../store/messages';
+import {
+  Message as MessageModel,
+  MediaType,
+  EditMessageOptions,
+  MessageSendStatus,
+  Media,
+  MediaDownloadStatus,
+} from '../../store/messages';
 import { download } from '../../lib/api/attachment';
 import { LinkPreview } from '../link-preview';
 import { getProvider } from '../../lib/cloudinary/provider';
 import { MessageInput } from '../message-input/container';
-import { User } from '../../store/channels';
+import { MessagesFetchState, User } from '../../store/channels';
 import { ParentMessage as ParentMessageType } from '../../lib/chat/types';
 import { UserForMention } from '../message-input/utils';
 import EditMessageActions from './edit-message-actions/edit-message-actions';
 import { MessageMenu } from '../../platform-apps/channels/messages-menu';
 import AttachmentCards from '../../platform-apps/channels/attachment-cards';
-import { IconAlertCircle } from '@zero-tech/zui/icons';
-import { Avatar } from '@zero-tech/zui/components';
+import { IconAlertCircle, IconHeart } from '@zero-tech/zui/icons';
+import { Avatar, IconButton } from '@zero-tech/zui/components';
 import { ContentHighlighter } from '../content-highlighter';
 import { bemClassName } from '../../lib/bem';
+import { Blurhash } from 'react-blurhash';
+import { ParentMessage } from './parent-message';
+import { Spinner } from '@zero-tech/zui/components/LoadingIndicator';
+import { AttachmentPreviewModal } from '../attachment-preview-modal';
+import { ReactionPicker } from './reaction-picker/reaction-picker';
 
 import './styles.scss';
-import { ParentMessage } from './parent-message';
-import { createPortal } from 'react-dom';
 
 const cn = bemClassName('message');
 
@@ -33,6 +44,7 @@ interface Properties extends MessageModel {
     mentionedUserIds: User['userId'][],
     data?: Partial<EditMessageOptions>
   ) => void;
+  onInfo: (messageId: number) => void;
   onReply: ({ reply }: { reply: ParentMessageType }) => void;
   isOwner?: boolean;
   messageId?: number;
@@ -41,12 +53,18 @@ interface Properties extends MessageModel {
   parentSenderIsCurrentUser?: boolean;
   parentSenderFirstName?: string;
   parentSenderLastName?: string;
+  parentMessageMediaUrl?: string;
+  parentMessageMediaName?: string;
   getUsersForMentions: (search: string) => Promise<UserForMention[]>;
   showSenderAvatar?: boolean;
   showTimestamp: boolean;
   showAuthorName: boolean;
   isHidden: boolean;
   onHiddenMessageInfoClick: () => void;
+  loadAttachmentDetails: (payload: { media: Media; messageId: string }) => void;
+  sendEmojiReaction: (messageId, key) => void;
+  onReportUser: (payload: { reportedUserId: string }) => void;
+  messagesFetchStatus: MessagesFetchState;
 }
 
 export interface State {
@@ -56,6 +74,15 @@ export interface State {
   isDropdownMenuOpen: boolean;
   menuX: number;
   menuY: number;
+  isImageLoaded: boolean;
+  isAttachmentPreviewOpen: boolean;
+  attachmentPreview: {
+    name: string;
+    url: string;
+    type: string;
+    mimetype?: string;
+  } | null;
+  isReactionPickerOpen: boolean;
 }
 
 export class Message extends React.Component<Properties, State> {
@@ -66,6 +93,10 @@ export class Message extends React.Component<Properties, State> {
     isDropdownMenuOpen: false,
     menuX: 0,
     menuY: 0,
+    isImageLoaded: false,
+    isAttachmentPreviewOpen: false,
+    attachmentPreview: null,
+    isReactionPickerOpen: false,
   } as State;
 
   wrapperRef = React.createRef<HTMLDivElement>();
@@ -91,20 +122,113 @@ export class Message extends React.Component<Properties, State> {
     }
   };
 
-  openAttachment = async (attachment): Promise<void> => {
-    download(attachment.url);
+  openAttachmentPreview = async (attachment): Promise<void> => {
+    this.setState({ isAttachmentPreviewOpen: true, attachmentPreview: attachment });
+  };
+
+  closeAttachmentPreview = () => {
+    this.setState({ isAttachmentPreviewOpen: false, attachmentPreview: null });
+  };
+
+  downloadAttachment = async () => {
+    if (!this.state.attachmentPreview) return;
+    await download(this.state.attachmentPreview.url);
+  };
+
+  downloadImage = (media) => () => {
+    if (!media || !media.url) return;
+
+    const link = document.createElement('a');
+    link.href = media.url;
+    link.download = media.name || 'image';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  copyImage = (media) => async () => {
+    if (!media?.url) return;
+
+    try {
+      const response = await fetch(media.url);
+      const blob = await response.blob();
+
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            [blob.type]: blob,
+          }),
+        ]);
+      } catch (writeError) {
+        // Fallback: Create a temporary canvas to handle image copying
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = media.url;
+        });
+
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        try {
+          await canvas.toBlob(async (blob) => {
+            if (blob) {
+              await navigator.clipboard.write([
+                new ClipboardItem({
+                  'image/png': blob,
+                }),
+              ]);
+            }
+          }, 'image/png');
+        } catch (canvasError) {
+          throw new Error('Failed to copy image using canvas fallback');
+        }
+      }
+    } catch (err) {
+      console.error('Failed to copy image:', err);
+    }
+  };
+
+  scrollToMessage = (messageId: string) => {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    const messageBlock = messageElement?.querySelector('.message__block');
+    if (messageBlock) {
+      messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      messageBlock.classList.add('message__block--parent-message-highlight');
+      setTimeout(() => {
+        messageBlock.classList.remove('message__block--parent-message-highlight');
+      }, 3000);
+    }
+  };
+
+  onParentMessageClick = (messageId: string) => {
+    this.scrollToMessage(messageId);
   };
 
   renderAttachment(attachment) {
     return (
-      <div {...cn('attachment')} onClick={this.openAttachment.bind(this, attachment)}>
-        <AttachmentCards attachments={[attachment]} onAttachmentClicked={this.openAttachment.bind(this, attachment)} />
+      <div {...cn('attachment')} onClick={this.openAttachmentPreview.bind(this, attachment)}>
+        <AttachmentCards
+          attachments={[attachment]}
+          onAttachmentClicked={this.openAttachmentPreview.bind(this, attachment)}
+        />
       </div>
     );
   }
 
   onImageClick = (media) => () => {
     this.props.onImageClick(media);
+  };
+
+  onLoadAttachmentDetails = (media) => () => {
+    this.props.loadAttachmentDetails({ media, messageId: media.id ?? this.props.messageId.toString() });
   };
 
   handleMediaAspectRatio = (width: number, height: number) => {
@@ -115,14 +239,100 @@ export class Message extends React.Component<Properties, State> {
   handleImageLoad = (event) => {
     const { naturalWidth: width, naturalHeight: height } = event.target;
     this.handleMediaAspectRatio(width, height);
+    this.setState({ isImageLoaded: true });
   };
 
+  handlePlaceholderAspectRatio = (width: number, height: number, maxWidth: number, maxHeight: number) => {
+    const aspectRatio = width / height;
+
+    let finalWidth = width;
+    let finalHeight = height;
+
+    if (height > maxHeight) {
+      finalHeight = maxHeight;
+      finalWidth = maxHeight * aspectRatio;
+    }
+
+    if (finalWidth > maxWidth) {
+      finalWidth = maxWidth;
+      finalHeight = maxWidth / aspectRatio;
+    }
+
+    return { width: finalWidth, height: finalHeight };
+  };
+
+  getPlaceholderDimensions = (w, h) => {
+    const width = w || 300;
+    const height = h || 200;
+
+    const maxWidth = 520;
+    const maxHeight = 640;
+
+    const { width: finalWidth, height: finalHeight } = this.handlePlaceholderAspectRatio(
+      width,
+      height,
+      maxWidth,
+      maxHeight
+    );
+
+    return { width: finalWidth, height: finalHeight };
+  };
+
+  renderPlaceholderContent(hasFailed, isLoading, blurhash, width, height) {
+    return (
+      <>
+        {hasFailed ? (
+          <IconAlertCircle size={32} {...cn('icon', 'failed')} />
+        ) : blurhash ? (
+          <Blurhash hash={blurhash} width={width} height={height} resolutionX={16} resolutionY={12} punch={1.5} />
+        ) : (
+          <div {...cn('placeholder-box')} />
+        )}
+
+        {isLoading && <Spinner {...cn('icon', 'loading')} />}
+      </>
+    );
+  }
+
   renderMedia(media) {
-    const { type, url, name } = media;
+    const { type, url, name, downloadStatus, mimetype } = media;
+    const blurhash = media['xyz.amorgan.blurhash'];
+
+    const { width, height } = this.getPlaceholderDimensions(media.width, media.height);
+    const isMatrixUrl = url?.startsWith('mxc://');
+
+    if (!url || isMatrixUrl) {
+      const isLoading = downloadStatus === MediaDownloadStatus.Loading;
+      const hasFailed = downloadStatus === MediaDownloadStatus.Failed;
+
+      if (!hasFailed && !isLoading && this.props.messagesFetchStatus === MessagesFetchState.SUCCESS) {
+        this.props.loadAttachmentDetails({ media, messageId: media.id ?? this.props.messageId.toString() });
+      }
+
+      return (
+        <>
+          {mimetype?.includes('application') || mimetype?.includes('audio') ? (
+            <AttachmentCards attachments={[{ name, url: '', type: '' }]} onAttachmentClicked={() => {}} />
+          ) : (
+            <div {...cn('placeholder-container')} style={{ width, height }}>
+              <div {...cn('placeholder-content')}>
+                {this.renderPlaceholderContent(hasFailed, isLoading, blurhash, width, height)}
+              </div>
+            </div>
+          )}
+        </>
+      );
+    }
+
     if (MediaType.Image === type) {
       return (
         <div {...cn('block-image')} onClick={this.onImageClick(media)}>
-          <img src={url} alt={this.props.media.name} onLoad={this.handleImageLoad} />
+          <img
+            src={url}
+            alt={this.props.media.name}
+            onLoad={this.handleImageLoad}
+            style={!this.state.isImageLoaded ? { width, height } : {}}
+          />
         </div>
       );
     } else if (MediaType.Video === type) {
@@ -134,12 +344,12 @@ export class Message extends React.Component<Properties, State> {
         </div>
       );
     } else if (MediaType.File === type) {
-      return this.renderAttachment({ url, name, type });
-    } else if (MediaType.Audio === type) {
+      return this.renderAttachment({ url, name, type, mimetype });
+    } else if (MediaType.Audio === type && !this.state.isEditing) {
       return (
         <div {...cn('block-audio')}>
-          <audio controls>
-            <source src={url} type='audio/mpeg' />
+          <audio controls controlsList='nodownload nofullscreen noplaybackrate'>
+            <source src={url} type={mimetype} />
           </audio>
         </div>
       );
@@ -182,6 +392,7 @@ export class Message extends React.Component<Properties, State> {
       </div>
     );
   }
+
   renderTime(time): React.ReactElement {
     const createdTime = moment(time).format('h:mm A');
     return <div {...cn('time')}>{createdTime}</div>;
@@ -198,6 +409,7 @@ export class Message extends React.Component<Properties, State> {
   canEditMessage = (): boolean => {
     return (
       this.props.isOwner &&
+      this.props.message &&
       this.props.sendStatus !== MessageSendStatus.IN_PROGRESS &&
       this.props.sendStatus !== MessageSendStatus.FAILED
     );
@@ -205,6 +417,10 @@ export class Message extends React.Component<Properties, State> {
 
   canDeleteMessage = (): boolean => {
     return this.props.isOwner && this.props.sendStatus !== MessageSendStatus.IN_PROGRESS;
+  };
+
+  canReportUser = (): boolean => {
+    return !this.props.isOwner && this.props.sendStatus !== MessageSendStatus.IN_PROGRESS;
   };
 
   isMediaMessage = (): boolean => {
@@ -234,9 +450,14 @@ export class Message extends React.Component<Properties, State> {
       admin: this.props.admin,
       optimisticId: this.props.optimisticId,
       rootMessageId: this.props.rootMessageId,
+      media: this.props?.media,
     };
 
     this.props.onReply({ reply });
+  };
+
+  onReportUser = () => {
+    this.props.onReportUser({ reportedUserId: this.props.sender.userId });
   };
 
   editActions = (value: string, mentionedUserIds: string[]) => {
@@ -265,37 +486,76 @@ export class Message extends React.Component<Properties, State> {
     );
   };
 
+  canViewInfo = (): boolean => {
+    return (
+      this.props.sendStatus !== MessageSendStatus.IN_PROGRESS && this.props.sendStatus !== MessageSendStatus.FAILED
+    );
+  };
+
+  canDownload = (): boolean => {
+    return this.props.media?.type === MediaType.Image && this.props.media?.mimetype !== 'image/gif';
+  };
+
+  canCopy = (): boolean => {
+    return this.props.media?.type === MediaType.Image && this.props.media?.mimetype !== 'image/gif';
+  };
+
+  onInfo = () => {
+    this.props.onInfo(this.props.messageId);
+  };
+
   isMenuTriggerAlwaysVisible = () => {
     return this.props.sendStatus === MessageSendStatus.FAILED;
+  };
+
+  openReactionPicker = () => this.setState({ isReactionPickerOpen: true });
+  closeReactionPicker = () => this.setState({ isReactionPickerOpen: false });
+
+  onEmojiReaction = (key) => {
+    this.props.sendEmojiReaction(this.props.messageId, key);
+    this.closeReactionPicker();
   };
 
   renderMenu(): React.ReactElement {
     const { isMessageMenuOpen } = this.state;
 
-    const menuProps = {
+    const messageMenuProps = {
       canEdit: this.canEditMessage(),
       canDelete: this.canDeleteMessage(),
       canReply: this.canReply(),
+      canReportUser: this.canReportUser(),
+      canViewInfo: this.canViewInfo(),
+      canDownload: this.canDownload(),
+      canCopy: this.canCopy(),
       onDelete: this.deleteMessage,
       onEdit: this.toggleEdit,
       onReply: this.onReply,
+      onInfo: this.onInfo,
+      onDownload: this.downloadImage(this.props.media),
+      onCopy: this.copyImage(this.props.media),
       isMediaMessage: this.isMediaMessage(),
       isMenuOpen: isMessageMenuOpen,
       onOpenChange: this.handleOpenMenu,
       onCloseMenu: this.handleCloseMenu,
+      onReportUser: this.onReportUser,
+    };
+
+    const onClose = () => {
+      this.handleCloseMenu();
     };
 
     return (
       <div
         {...cn(
           classNames('menu', {
-            'menu--open': this.state.isMessageMenuOpen,
+            'menu--open': this.state.isMessageMenuOpen || this.state.isReactionPickerOpen,
             'menu--force-visible': this.isMenuTriggerAlwaysVisible(),
           })
         )}
-        onClick={menuProps.onCloseMenu}
+        onClick={onClose}
       >
-        <MessageMenu {...cn('menu-item')} {...menuProps} />
+        <IconButton {...cn('menu-item')} onClick={this.openReactionPicker} Icon={IconHeart} size={32} />
+        <MessageMenu {...cn('menu-item')} {...messageMenuProps} />
       </div>
     );
   }
@@ -308,9 +568,17 @@ export class Message extends React.Component<Properties, State> {
       canEdit: this.canEditMessage(),
       canDelete: this.canDeleteMessage(),
       canReply: this.canReply(),
+      canReportUser: this.canReportUser(),
+      canViewInfo: this.canViewInfo(),
+      canDownload: this.canDownload(),
+      canCopy: this.canCopy(),
       onDelete: this.deleteMessage,
       onEdit: this.toggleEdit,
       onReply: this.onReply,
+      onInfo: this.onInfo,
+      onDownload: this.downloadImage(this.props.media),
+      onCopy: this.copyImage(this.props.media),
+      onReportUser: this.onReportUser,
       isMediaMessage: this.isMediaMessage(),
       isMenuOpen: isDropdownMenuOpen,
       onOpenChange: this.handleOpenMenu,
@@ -345,7 +613,15 @@ export class Message extends React.Component<Properties, State> {
 
   renderLinkPreview() {
     const { preview, hidePreview, media, parentMessageText } = this.props;
-    if (!preview || hidePreview || media || parentMessageText) {
+    if (
+      !preview?.title ||
+      !preview?.description ||
+      !preview?.type ||
+      !preview?.url ||
+      hidePreview ||
+      media ||
+      parentMessageText
+    ) {
       return;
     }
 
@@ -353,7 +629,7 @@ export class Message extends React.Component<Properties, State> {
   }
 
   renderBody() {
-    const { message, isHidden } = this.props;
+    const { message, isHidden, reactions } = this.props;
 
     return (
       <div {...cn('block-body')}>
@@ -364,7 +640,40 @@ export class Message extends React.Component<Properties, State> {
             onHiddenMessageInfoClick={this.props.onHiddenMessageInfoClick}
           />
         )}
-        {this.renderFooter()}
+
+        <div {...cn('footer-container', !!reactions && 'has-reactions')}>
+          {this.renderReactions()}
+          {this.renderFooter()}
+        </div>
+      </div>
+    );
+  }
+
+  renderReactions() {
+    const { reactions } = this.props;
+
+    if (!!reactions) {
+      return (
+        <div {...cn('reactions')}>
+          {Object.entries(reactions).map(([key, value]) => (
+            <div key={key} {...cn('reaction-icon')}>
+              {key} <span>{value}</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+  }
+
+  renderReactionPicker() {
+    return (
+      <div {...cn('reaction-picker-container')}>
+        <ReactionPicker
+          isOpen={this.state.isReactionPickerOpen}
+          onOpen={this.openReactionPicker}
+          onClose={this.closeReactionPicker}
+          onSelect={this.onEmojiReaction}
+        />
       </div>
     );
   }
@@ -376,6 +685,11 @@ export class Message extends React.Component<Properties, State> {
         senderIsCurrentUser={this.props.parentSenderIsCurrentUser}
         senderFirstName={this.props.parentSenderFirstName}
         senderLastName={this.props.parentSenderLastName}
+        mediaUrl={this.props.parentMessageMediaUrl}
+        mediaName={this.props.parentMessageMediaName}
+        messageId={this.props.parentMessageId}
+        onMessageClick={this.onParentMessageClick}
+        mediaType={this.props.parentMessageMedia?.type}
       />
     );
   }
@@ -389,6 +703,7 @@ export class Message extends React.Component<Properties, State> {
         })}
         onContextMenu={this.handleContextMenu}
         ref={this.wrapperRef}
+        data-message-id={this.props.messageId}
       >
         {this.props.showSenderAvatar && (
           <div {...cn('left')}>
@@ -397,7 +712,15 @@ export class Message extends React.Component<Properties, State> {
             </div>
           </div>
         )}
-        <div {...cn('block', this.state.isEditing && 'edit')}>
+        <div
+          {...cn(
+            'block',
+            classNames({
+              edit: this.state.isEditing,
+              reply: this.props.parentMessageText || this.props.parentMessageMediaUrl,
+            })
+          )}
+        >
           {(message || media || preview) && (
             <>
               {!this.state.isEditing && (
@@ -412,6 +735,8 @@ export class Message extends React.Component<Properties, State> {
 
               {this.state.isEditing && this.props.message && (
                 <>
+                  {media && this.renderMedia(media)}
+
                   <div {...cn('block-edit')}>
                     <MessageInput
                       initialValue={this.props.message}
@@ -428,6 +753,10 @@ export class Message extends React.Component<Properties, State> {
         </div>
         {this.renderMenu()}
         {this.renderFloatMenu()}
+        {this.state.isReactionPickerOpen && this.renderReactionPicker()}
+        {this.state.isAttachmentPreviewOpen && (
+          <AttachmentPreviewModal attachment={this.state.attachmentPreview} onClose={this.closeAttachmentPreview} />
+        )}
       </div>
     );
   }

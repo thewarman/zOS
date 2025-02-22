@@ -21,18 +21,24 @@ export function getMainBackgroundClass(selectedMainBackground) {
     case MainBackground.AnimatedBlackParticles:
       return 'animated';
     case MainBackground.StaticGreenParticles:
-    default:
       return 'static-green-particles';
+    case MainBackground.StaticLightsOut:
+    default:
+      return 'static-lights-out';
   }
 }
 
 export function getMainBackgroundVideoSrc(selectedMainBackground) {
   switch (selectedMainBackground) {
     case MainBackground.AnimatedGreenParticles:
-      return `${config.videoAssetsPath}GreenParticlesBG.mp4`;
+      return `${config.videoAssetsPath}/GreenParticlesBG.mp4`;
     case MainBackground.AnimatedBlackParticles:
-      return `${config.videoAssetsPath}BlackParticlesBG.mp4`;
+      return `${config.videoAssetsPath}/BlackParticlesBG.mp4`;
     default:
       return '';
   }
 }
+
+export const isMobile = () => {
+  return /Mobi|Android/i.test(navigator.userAgent);
+};

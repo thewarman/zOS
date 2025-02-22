@@ -1,6 +1,7 @@
 import { createSlice, createAction, PayloadAction } from '@reduxjs/toolkit';
 import { Chains, ConnectionStatus, Connectors } from '../../lib/web3';
 import { WalletType } from '@zer0-os/zos-component-library';
+import { Connector } from 'wagmi';
 
 export enum SagaActionTypes {
   UpdateConnector = 'web3/saga/updateConnector',
@@ -8,7 +9,7 @@ export enum SagaActionTypes {
   SetConnectionError = 'web3/saga/setConnectionError',
 }
 
-export const updateConnector = createAction<Connectors | WalletType>(SagaActionTypes.UpdateConnector);
+export const updateConnector = createAction<Connectors | WalletType | string>(SagaActionTypes.UpdateConnector);
 export const setAddress = createAction<string>(SagaActionTypes.SetAddress);
 export const setConnectionError = createAction<string>(SagaActionTypes.SetConnectionError);
 
@@ -17,14 +18,14 @@ export interface Web3State {
   value: {
     chainId: Chains;
     address: string;
-    connector: Connectors;
+    connectorId: Connector['id'] | '';
     error: string;
   };
 }
 
-const initialState: Web3State = {
+export const initialState: Web3State = {
   status: ConnectionStatus.Disconnected,
-  value: { chainId: null, address: '', connector: Connectors.None, error: '' },
+  value: { chainId: 1, address: '', connectorId: '', error: '' },
 };
 
 const slice = createSlice({
@@ -34,8 +35,8 @@ const slice = createSlice({
     setConnectionStatus: (state, action: PayloadAction<ConnectionStatus>) => {
       state.status = action.payload;
     },
-    setConnector: (state, action: PayloadAction<Connectors>) => {
-      state.value.connector = action.payload;
+    setConnector: (state, action: PayloadAction<Connector['id']>) => {
+      state.value.connectorId = action.payload;
     },
     setWalletAddress: (state, action: PayloadAction<string>) => {
       state.value.address = action.payload;

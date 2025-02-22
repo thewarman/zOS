@@ -2,7 +2,9 @@ import { expectSaga } from '../../test/saga';
 import * as matchers from 'redux-saga-test-plan/matchers';
 
 import {
+  addEmailAccount,
   authorizeAndCreateWeb3Account,
+  cacheProfileImage,
   clearRegistrationStateOnLogout,
   createAccount,
   createWelcomeConversation,
@@ -15,7 +17,7 @@ import {
   createAccount as apiCreateAccount,
   createWeb3Account as apiCreateWeb3Account,
   completeAccount as apiCompleteAccount,
-  uploadImage,
+  addEmailAccount as apiAddEmailAccount,
 } from './api';
 import { getZEROUsers as getZEROUsersAPI } from '../channels-list/api';
 import { call, spawn } from 'redux-saga/effects';
@@ -31,13 +33,11 @@ import { rootReducer } from '../reducer';
 import { fetchCurrentUser } from '../authentication/api';
 import { nonce as nonceApi } from '../authentication/api';
 import { throwError } from 'redux-saga-test-plan/providers';
-import { Connectors } from '../../lib/web3';
-import { getSignedTokenForConnector } from '../web3/saga';
+import { getSignedToken } from '../web3/saga';
 import { completeUserLogin } from '../authentication/saga';
 import { createConversation } from '../channels-list/saga';
 import { denormalize as denormalizeUser } from '../users';
 import { StoreBuilder } from '../test/store';
-import { chat } from '../../lib/chat';
 
 describe('validate invite', () => {
   it('validates invite code, returns true if VALID', async () => {
@@ -321,7 +321,7 @@ describe('updateProfile', () => {
     expect(returnValue).toEqual(true);
   });
 
-  it('updates the users profile image', async () => {
+  it('caches the users profile image', async () => {
     const name = 'john';
     const image = { some: 'file' };
     const {
@@ -330,11 +330,11 @@ describe('updateProfile', () => {
     } = await expectSaga(updateProfile, { payload: { name, image } })
       .provide([
         [
-          matchers.call.fn(uploadImage),
-          { url: 'image-url' },
+          matchers.call.fn(cacheProfileImage),
+          {},
         ],
         [
-          call(apiCompleteAccount, { userId: 'abc', name, inviteCode: 'INV123', profileImage: 'image-url' }),
+          call(apiCompleteAccount, { userId: 'abc', name, inviteCode: 'INV123', profileImage: '' }),
           {
             success: true,
             response: {
@@ -363,36 +363,11 @@ describe('updateProfile', () => {
         rootReducer,
         initialState({ userId: 'abc', inviteCode: 'INV123', stage: RegistrationStage.ProfileDetails })
       )
-      .call(uploadImage, image)
+      .call(cacheProfileImage, image)
       .run();
 
     expect(registration.stage).toEqual(RegistrationStage.Done);
     expect(returnValue).toEqual(true);
-  });
-
-  it('sets error state if uploading the image fails', async () => {
-    const name = 'john';
-    const image = { some: 'file' };
-
-    const {
-      returnValue,
-      storeState: { registration },
-    } = await expectSaga(updateProfile, { payload: { name, image } })
-      .provide([
-        [
-          matchers.call.fn(uploadImage),
-          throwError(new Error('Stub image upload error')),
-        ],
-      ])
-      .withReducer(
-        rootReducer,
-        initialState({ userId: 'abc', inviteCode: 'INV123', stage: RegistrationStage.ProfileDetails })
-      )
-      .run();
-
-    expect(registration.stage).toEqual(RegistrationStage.ProfileDetails);
-    expect(registration.errors).toEqual([ProfileDetailsErrors.FILE_UPLOAD_ERROR]);
-    expect(returnValue).toEqual(false);
   });
 
   it('sets error state if updating the profile fails', async () => {
@@ -507,10 +482,10 @@ describe('authorizeAndCreateWeb3Account', () => {
     const {
       returnValue,
       storeState: { registration },
-    } = await expectSaga(authorizeAndCreateWeb3Account, { payload: { connector: Connectors.Metamask } })
+    } = await expectSaga(authorizeAndCreateWeb3Account)
       .provide([
         [
-          call(getSignedTokenForConnector, Connectors.Metamask),
+          call(getSignedToken),
           { success: true, token: signedToken },
         ],
         [
@@ -532,13 +507,10 @@ describe('authorizeAndCreateWeb3Account', () => {
 });
 
 describe(createWelcomeConversation, () => {
-  const chatClient = { userJoinedInviterOnZero: jest.fn() };
-
   function subject(...args: Parameters<typeof expectSaga>) {
     return expectSaga(...args).provide([
       [matchers.call.fn(getZEROUsersAPI), [{ userId: 'stub-id' }]],
       [matchers.call.fn(createConversation), { id: 'conversation-id' }],
-      [matchers.call.fn(chat.get), chatClient],
     ]);
   }
   it('creates the welcome conversation between the inviter and new user', async () => {
@@ -548,7 +520,6 @@ describe(createWelcomeConversation, () => {
       .provide([[call(getZEROUsersAPI, ['inviter-matrix-id']), [{ userId: 'inviter-id', firstName: 'The inviter' }]]])
       .withReducer(rootReducer, initialState.build())
       .call(createConversation, ['inviter-id'], '', null)
-      .call([chatClient, chatClient.userJoinedInviterOnZero], 'conversation-id', 'inviter-id', 'new-user-id')
       .run();
   });
 
@@ -565,6 +536,97 @@ describe(createWelcomeConversation, () => {
 
     const savedUser = denormalizeUser('inviter-id', storeState);
     expect(savedUser).toEqual(expect.objectContaining({ userId: 'inviter-id', firstName: 'The inviter' }));
+  });
+});
+
+describe(addEmailAccount, () => {
+  const email = 'john@example.com';
+  const password = VALID_PASSWORD;
+
+  it('adds a new email account with email and password & returns with OK message', async () => {
+    const { returnValue } = await expectSaga(addEmailAccount, { email, password })
+      .provide([
+        [
+          call(apiAddEmailAccount, { email, password }),
+          { success: true, response: { message: 'OK' } },
+        ],
+      ])
+      .withReducer(rootReducer, initialState({}))
+      .run();
+
+    expect(returnValue).toEqual({ success: true, response: { message: 'OK' } });
+  });
+
+  it('sets error state if validation fails', async () => {
+    const email = 'any';
+    const password = 'any';
+    const {
+      returnValue,
+      storeState: { registration },
+    } = await expectSaga(addEmailAccount, { email, password })
+      .provide([
+        [
+          call(validateAccountInfo, { email, password }),
+          [AccountCreationErrors.EMAIL_REQUIRED],
+        ],
+      ])
+      .withReducer(rootReducer, initialState({}))
+      .run();
+
+    expect(registration.errors).toEqual([AccountCreationErrors.EMAIL_REQUIRED]);
+    expect(returnValue).toEqual(false);
+  });
+
+  it('sets error state from api call', async () => {
+    const {
+      returnValue,
+      storeState: { registration },
+    } = await expectSaga(addEmailAccount, { email, password })
+      .provide([
+        [
+          call(apiAddEmailAccount, { email, password }),
+          { success: false, response: 'EMAIL_INVALID' },
+        ],
+      ])
+      .withReducer(rootReducer, initialState())
+      .run();
+
+    expect(registration.errors).toEqual(['EMAIL_INVALID']);
+    expect(returnValue).toEqual(false);
+  });
+
+  it('sets error state if api call throws an exception', async () => {
+    const {
+      returnValue,
+      storeState: { registration },
+    } = await expectSaga(addEmailAccount, { email, password })
+      .provide([
+        [
+          call(apiAddEmailAccount, { email, password }),
+          throwError(new Error('Stub api error')),
+        ],
+      ])
+      .withReducer(rootReducer, initialState({}))
+      .run();
+
+    expect(registration.errors).toEqual([AccountCreationErrors.UNKNOWN_ERROR]);
+    expect(returnValue).toEqual(false);
+  });
+
+  it('clears errors on success', async () => {
+    const {
+      storeState: { registration },
+    } = await expectSaga(addEmailAccount, { email, password })
+      .provide([
+        [
+          call(apiAddEmailAccount, { email, password }),
+          { success: true, response: { message: 'OK' } },
+        ],
+      ])
+      .withReducer(rootReducer, initialState({}))
+      .run();
+
+    expect(registration.errors).toEqual([]);
   });
 });
 

@@ -8,12 +8,16 @@ export enum SagaActionTypes {
   Cancel = 'create-conversation/cancel',
   MembersSelected = 'create-conversation/members-selected',
   CreateConversation = 'create-conversation/create',
+  CreateUnencryptedConversation = 'create-conversation/create-unencrypted',
 }
 
 export const startCreateConversation = createAction(SagaActionTypes.Start);
 export const back = createAction(SagaActionTypes.Back);
 export const membersSelected = createAction<MembersSelectedPayload>(SagaActionTypes.MembersSelected);
 export const createConversation = createAction<CreateMessengerConversation>(SagaActionTypes.CreateConversation);
+export const createUnencryptedConversation = createAction<CreateMessengerConversation>(
+  SagaActionTypes.CreateUnencryptedConversation
+);
 
 export enum Stage {
   None = 'none',

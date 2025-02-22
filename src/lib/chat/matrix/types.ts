@@ -20,12 +20,19 @@ export enum MatrixConstants {
   NEW_CONTENT = 'm.new_content',
   REPLACE = 'm.replace',
   BAD_ENCRYPTED_MSGTYPE = 'm.bad.encrypted',
-  FAVORITE = 'm.favorite',
   READ_RECEIPT_PREFERENCE = 'm.read_receipt_preference',
+  REACTION = 'm.reaction',
+  ANNOTATION = 'm.annotation',
+}
+
+export enum ReactionKeys {
+  MEOW = 'MEOW',
 }
 
 export enum CustomEventType {
   USER_JOINED_INVITER_ON_ZERO = 'user_joined_inviter_on_zero',
+  GROUP_TYPE = 'm.room.group_type',
+  ROOM_POST = 'm.room.post',
 }
 
 export enum DecryptErrorConstants {

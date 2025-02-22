@@ -9,12 +9,11 @@ import CreateConversationPanel from './create-conversation-panel';
 import { ConversationListPanel } from './conversation-list-panel';
 import { GroupDetailsPanel } from './group-details-panel';
 import { Stage } from '../../../store/create-conversation';
-import { RegistrationState } from '../../../store/registration';
 import { previewDisplayDate } from '../../../lib/chat/chat-message';
-import { UserHeader } from './user-header';
+import { CurrentUserDetails } from '../../sidekick/components/current-user-details';
 import { ErrorDialog } from '../../error-dialog';
 import { bem } from '../../../lib/bem';
-
+import { IconButton } from '@zero-tech/zui/components/IconButton';
 const c = bem('.direct-message-members');
 
 const mockSearchMyNetworksByName = jest.fn();
@@ -29,7 +28,6 @@ describe('messenger-list', () => {
       groupUsers: [],
       conversations: [],
       isFetchingExistingConversations: false,
-      isFirstTimeLogin: false,
       userName: '',
       userHandle: '',
       userAvatarUrl: '',
@@ -39,20 +37,18 @@ describe('messenger-list', () => {
       onConversationClick: jest.fn(),
       createConversation: jest.fn(),
       isRewardsDialogOpen: false,
-      showRewardsTooltip: false,
       hasUnviewedRewards: false,
+      isSecondaryConversationDataLoaded: true,
       closeConversationErrorDialog: () => null,
       startCreateConversation: () => null,
       membersSelected: () => null,
       back: () => null,
       receiveSearchResults: () => null,
-      logout: () => null,
       closeRewardsDialog: () => null,
-      onFavoriteRoom: () => null,
-      onUnfavoriteRoom: () => null,
-      openUserProfile: () => null,
-      totalRewardsViewed: () => null,
-
+      onAddLabel: () => null,
+      onRemoveLabel: () => null,
+      createUnencryptedConversation: () => null,
+      users: {},
       ...props,
     };
 
@@ -69,21 +65,21 @@ describe('messenger-list', () => {
     const startCreateConversation = jest.fn();
     const wrapper = subject({ startCreateConversation });
 
-    wrapper.find(UserHeader).prop('startConversation')();
+    wrapper.find(IconButton).at(1).prop('onClick')(undefined);
 
-    expect(startCreateConversation).toHaveBeenCalledOnce();
+    expect(startCreateConversation).toHaveBeenCalled();
   });
 
-  it('renders user UserHeader when stage is equal to none', function () {
+  it('renders user UserDetails when stage is equal to none', function () {
     const wrapper = subject({ stage: Stage.None });
 
-    expect(wrapper).toHaveElement(UserHeader);
+    expect(wrapper).toHaveElement(CurrentUserDetails);
   });
 
-  it('does not render UserHeader when stage is not equal to none', function () {
+  it('does not render UserDetails when stage is not equal to none', function () {
     const wrapper = subject({ stage: Stage.InitiateConversation });
 
-    expect(wrapper).not.toHaveElement(UserHeader);
+    expect(wrapper).not.toHaveElement(CurrentUserDetails);
   });
 
   it('renders CreateConversationPanel', function () {
@@ -131,6 +127,19 @@ describe('messenger-list', () => {
     expect(searchResults).toStrictEqual([{ id: 'user-id', image: 'image-url', profileImage: 'image-url' }]);
   });
 
+  it('maps local profile image to search results', async function () {
+    when(mockSearchMyNetworksByName)
+      .calledWith('jac')
+      .mockResolvedValue([{ id: 'user-id', profileImage: 'mxc://contentId' }]);
+    const wrapper = subject({
+      stage: Stage.InitiateConversation,
+      users: { 'user-id': { profileImage: 'image-url' } } as any,
+    });
+
+    const searchResults = await wrapper.find(CreateConversationPanel).prop('search')('jac');
+    expect(searchResults).toStrictEqual([{ id: 'user-id', image: 'image-url', profileImage: 'image-url' }]);
+  });
+
   it('creates a one on one conversation when user selected', async function () {
     const createConversation = jest.fn();
     const wrapper = subject({ createConversation, stage: Stage.InitiateConversation });
@@ -155,20 +164,45 @@ describe('messenger-list', () => {
     expect(wrapper.find(CreateConversationPanel).prop('isSubmitting')).toBeTrue();
   });
 
-  it('creates a group conversation when details submitted', async function () {
+  it('creates a group conversation (encrypted - Create Conversation) when details submitted', async function () {
     const createConversation = jest.fn();
     const wrapper = subject({ createConversation, stage: Stage.InitiateConversation });
     await wrapper.find(CreateConversationPanel).prop('onStartGroup')([{ value: 'id-1' } as any]);
     wrapper.setProps({ stage: Stage.GroupDetails });
 
-    wrapper
-      .find(GroupDetailsPanel)
-      .simulate('create', { name: 'group name', users: [{ value: 'id-1' }], image: { some: 'image' } });
+    wrapper.find(GroupDetailsPanel).simulate('create', {
+      name: 'group name',
+      users: [{ value: 'id-1' }],
+      image: { some: 'image' },
+      groupType: 'encrypted',
+    });
 
     expect(createConversation).toHaveBeenCalledWith({
       name: 'group name',
       userIds: ['id-1'],
       image: { some: 'image' },
+      groupType: 'encrypted',
+    });
+  });
+
+  it('creates a group conversation (unencrypted) when details submitted', async function () {
+    const createUnencryptedConversation = jest.fn();
+    const wrapper = subject({ createUnencryptedConversation, stage: Stage.InitiateConversation });
+    await wrapper.find(CreateConversationPanel).prop('onStartGroup')([{ value: 'id-1' } as any]);
+    wrapper.setProps({ stage: Stage.GroupDetails });
+
+    wrapper.find(GroupDetailsPanel).simulate('create', {
+      name: 'group name',
+      users: [{ value: 'id-1' }],
+      image: { some: 'image' },
+      groupType: 'social',
+    });
+
+    expect(createUnencryptedConversation).toHaveBeenCalledWith({
+      name: 'group name',
+      userIds: ['id-1'],
+      image: { some: 'image' },
+      groupType: 'social',
     });
   });
 
@@ -402,13 +436,48 @@ describe('messenger-list', () => {
       expect(state.isFetchingExistingConversations).toEqual(true);
     });
 
-    test('isFirstTimeLogin', async () => {
-      const state = DirectMessageChat.mapState({
-        ...getState([]),
-        registration: { isFirstTimeLogin: true } as RegistrationState,
-      });
+    test('filters out social channels from conversations', () => {
+      const state = subject([
+        { id: 'convo-1', isSocialChannel: true },
+        { id: 'convo-2', isSocialChannel: false },
+        { id: 'convo-3', isSocialChannel: true },
+        { id: 'convo-4', isSocialChannel: false },
+      ]);
 
-      expect(state.isFirstTimeLogin).toEqual(true);
+      expect(state.conversations.map((c) => c.id)).toEqual([
+        'convo-2',
+        'convo-4',
+      ]);
+    });
+
+    test('maintains sort order after filtering social channels', () => {
+      const state = subject([
+        {
+          id: 'convo-1',
+          isSocialChannel: true,
+          lastMessage: { createdAt: moment('2023-03-05').valueOf(), sender: {} },
+        },
+        {
+          id: 'convo-2',
+          isSocialChannel: false,
+          lastMessage: { createdAt: moment('2023-03-04').valueOf(), sender: {} },
+        },
+        {
+          id: 'convo-3',
+          isSocialChannel: true,
+          lastMessage: { createdAt: moment('2023-03-03').valueOf(), sender: {} },
+        },
+        {
+          id: 'convo-4',
+          isSocialChannel: false,
+          lastMessage: { createdAt: moment('2023-03-02').valueOf(), sender: {} },
+        },
+      ]);
+
+      expect(state.conversations.map((c) => c.id)).toEqual([
+        'convo-2',
+        'convo-4',
+      ]);
     });
   });
 });

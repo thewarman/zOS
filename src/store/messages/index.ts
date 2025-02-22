@@ -31,12 +31,21 @@ export enum MediaType {
   File = 'file',
 }
 
+export enum MediaDownloadStatus {
+  Success = 'SUCCESS',
+  Failed = 'FAILED',
+  Loading = 'LOADING',
+}
+
 export interface Media {
   height: number;
   name: string;
   type: MediaType;
   url: string;
   width: number;
+  downloadStatus?: MediaDownloadStatus;
+  blurhash?: string;
+  mimetype?: string;
 }
 
 export interface MessagesResponse {
@@ -55,6 +64,8 @@ export enum AdminMessageType {
   MEMBER_ADDED_TO_CONVERSATION = 'MEMBER_ADDED_TO_CONVERSATION',
   MEMBER_SET_AS_MODERATOR = 'MEMBER_SET_AS_MODERATOR',
   MEMBER_REMOVED_AS_MODERATOR = 'MEMBER_REMOVED_AS_MODERATOR',
+  REACTION = 'REACTION',
+  MEMBER_AVATAR_CHANGED = 'MEMBER_AVATAR_CHANGED',
 }
 
 export enum MessageSendStatus {
@@ -67,7 +78,9 @@ export interface Message {
   id: number;
   message?: string;
   parentMessageText?: string;
+  parentMessageMedia?: Media;
   parentMessage?: ParentMessage;
+  parentMessageId?: string;
   isAdmin: boolean;
   createdAt: number;
   updatedAt: number;
@@ -86,6 +99,8 @@ export interface Message {
   rootMessageId?: string;
   sendStatus: MessageSendStatus;
   readBy?: User[];
+  isPost: boolean;
+  reactions?: { [key: string]: number };
 }
 
 export interface EditMessageOptions {
@@ -97,12 +112,18 @@ export enum SagaActionTypes {
   Send = 'messages/saga/send',
   DeleteMessage = 'messages/saga/deleteMessage',
   EditMessage = 'messages/saga/editMessage',
+  LoadAttachmentDetails = 'messages/saga/loadAttachmentDetails',
+  SendEmojiReaction = 'messages/saga/sendEmojiReaction',
 }
 
 const fetch = createAction<Payload>(SagaActionTypes.Fetch);
 const send = createAction<SendPayload>(SagaActionTypes.Send);
 const deleteMessage = createAction<Payload>(SagaActionTypes.DeleteMessage);
 const editMessage = createAction<EditPayload>(SagaActionTypes.EditMessage);
+const loadAttachmentDetails = createAction<{ media: Media }>(SagaActionTypes.LoadAttachmentDetails);
+const sendEmojiReaction = createAction<{ roomId: string; messageId: string; key: string }>(
+  SagaActionTypes.SendEmojiReaction
+);
 
 const slice = createNormalizedSlice({
   name: 'messages',
@@ -110,4 +131,4 @@ const slice = createNormalizedSlice({
 
 export const { receiveNormalized, receive } = slice.actions;
 export const { normalize, denormalize, schema } = slice;
-export { fetch, send, deleteMessage, editMessage, removeAll };
+export { fetch, send, deleteMessage, editMessage, removeAll, loadAttachmentDetails, sendEmojiReaction };

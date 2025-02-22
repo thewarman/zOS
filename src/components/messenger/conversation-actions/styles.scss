@@ -1,0 +1,19 @@
+@use '~@zero-tech/zui/styles/theme' as theme;
+@import '../../../glass';
+
+.conversation-actions {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  box-sizing: border-box;
+
+  gap: 9px;
+
+  &__group-button {
+    color: rgba(113, 117, 122, 1);
+
+    &--is-active {
+      background-color: theme.$color-greyscale-transparency-3;
+    }
+  }
+}

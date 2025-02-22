@@ -7,16 +7,19 @@ const initialState: ChatState = {
   isJoiningConversation: false,
   isChatConnectionComplete: false,
   isConversationsLoaded: false,
+  isSecondaryConversationDataLoaded: false,
 };
 
 export enum SagaActionTypes {
   CloseConversationErrorDialog = 'chat/saga/closeConversationErrorDialog',
   setActiveConversationId = 'chat/saga/setActiveConversationId',
   SetIsJoiningConversation = 'chat/saga/setIsJoiningConversation',
+  ValidateFeedChat = 'chat/saga/validateFeedChat',
 }
 
 const closeConversationErrorDialog = createAction(SagaActionTypes.CloseConversationErrorDialog);
 export const setActiveConversationId = createAction<{ id: string }>(SagaActionTypes.setActiveConversationId);
+export const validateFeedChat = createAction<{ id: string }>(SagaActionTypes.ValidateFeedChat);
 
 const slice = createSlice({
   name: 'chat',
@@ -40,6 +43,12 @@ const slice = createSlice({
     setIsConversationsLoaded: (state, action: PayloadAction<ChatState['isConversationsLoaded']>) => {
       state.isConversationsLoaded = action.payload;
     },
+    setIsSecondaryConversationDataLoaded: (
+      state,
+      action: PayloadAction<ChatState['isSecondaryConversationDataLoaded']>
+    ) => {
+      state.isSecondaryConversationDataLoaded = action.payload;
+    },
   },
 });
 
@@ -50,6 +59,7 @@ export const {
   setIsJoiningConversation,
   setIsChatConnectionComplete,
   setIsConversationsLoaded,
+  setIsSecondaryConversationDataLoaded,
 } = slice.actions;
 export const { reducer } = slice;
 export { closeConversationErrorDialog };

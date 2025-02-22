@@ -12,6 +12,10 @@
   margin-bottom: 8px;
   padding: 0 8px;
 
+  &[is-collapsed] {
+    justify-content: center;
+  }
+
   &:hover,
   &:focus,
   &[is-active='true'] {
@@ -55,10 +59,21 @@
 
   &__timestamp {
     @include glass-text-tertiary-color;
+    display: flex;
+    justify-content: flex-end;
+    min-width: 42px;
+
     font-weight: 400;
     font-size: 10px;
     line-height: 15px;
     white-space: nowrap;
+  }
+
+  &__muted-icon {
+    @include glass-text-tertiary-color;
+
+    margin-right: 6px;
+    align-self: center;
   }
 
   &__message {
@@ -109,6 +124,28 @@
     flex-grow: 0;
     flex-shrink: 0;
     color: theme.$color-secondary-transparency-11;
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
+    text-align: center;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 11px;
+    margin-left: 3px;
+    letter-spacing: 0.32px;
+  }
+
+  &__unread-highlight {
+    @include glass-state-default-color;
+    @include glass-glow-highlight-small;
+    @include glass-materials-raised;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-grow: 0;
+    flex-shrink: 0;
+    color: #9054f1;
     border-radius: 50%;
     width: 16px;
     height: 16px;

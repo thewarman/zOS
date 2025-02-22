@@ -11,7 +11,7 @@ import { bem } from '../../../../lib/bem';
 
 const c = bem('.overview-panel');
 
-const featureFlags = { enableRewards: false, enableUserSettings: false };
+const featureFlags = { enableRewards: false, enableUserSettings: false, enableLinkedAccounts: false };
 
 jest.mock('../../../../lib/feature-flags', () => ({
   featureFlags: featureFlags,
@@ -30,6 +30,9 @@ describe(OverviewPanel, () => {
       onOpenEditProfile: () => {},
       onOpenRewards: () => {},
       onOpenSettings: () => {},
+      onOpenDownloads: () => {},
+      onManageAccounts: () => {},
+      onOpenLinkedAccounts: () => {},
 
       ...props,
     };
@@ -68,7 +71,7 @@ describe(OverviewPanel, () => {
     const onOpenBackupDialog = jest.fn();
     const wrapper = subject({ onOpenBackupDialog });
 
-    wrapper.find(Button).at(2).simulate('press');
+    wrapper.find(Button).at(3).simulate('press');
 
     expect(onOpenBackupDialog).toHaveBeenCalled();
   });
@@ -90,9 +93,40 @@ describe(OverviewPanel, () => {
     const onOpenSettings = jest.fn();
     const wrapper = subject({ onOpenSettings });
 
-    wrapper.find(Button).at(3).simulate('press');
+    wrapper.find(Button).at(4).simulate('press');
 
     expect(onOpenSettings).toHaveBeenCalled();
+  });
+
+  it('publishes onOpenDownloads event', () => {
+    featureFlags.enableUserSettings = true;
+
+    const onOpenDownloads = jest.fn();
+    const wrapper = subject({ onOpenDownloads });
+
+    wrapper.find(Button).at(5).simulate('press');
+
+    expect(onOpenDownloads).toHaveBeenCalled();
+  });
+
+  it('publishes openAccountManagement event', () => {
+    const onOpenAccountManagement = jest.fn();
+    const wrapper = subject({ onManageAccounts: onOpenAccountManagement });
+
+    wrapper.find(Button).at(2).simulate('press');
+
+    expect(onOpenAccountManagement).toHaveBeenCalled();
+  });
+
+  it('publishes onOpenLinkedAccounts event', () => {
+    featureFlags.enableLinkedAccounts = true;
+
+    const onOpenLinkedAccounts = jest.fn();
+    const wrapper = subject({ onOpenLinkedAccounts });
+
+    wrapper.find(Button).at(6).simulate('press');
+
+    expect(onOpenLinkedAccounts).toHaveBeenCalled();
   });
 
   it('opens the invite dialog', () => {

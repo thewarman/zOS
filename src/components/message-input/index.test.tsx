@@ -188,8 +188,9 @@ describe('MessageInput', () => {
     const mimeTypes = {
       'image/*': [],
       // 'text/*': [],
-      // 'video/*': [],
-      // 'application/pdf': [],
+      'video/*': [],
+      'application/pdf': [],
+      'audio/*': [],
       // 'application/zip': [],
       // 'application/msword': [],
     };

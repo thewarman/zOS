@@ -7,19 +7,29 @@ import { LogoutConfirmationModalContainer } from '../logout-confirmation-modal/c
 import { RewardsModalContainer } from '../rewards-modal/container';
 import { closeRewardsDialog } from '../../store/rewards';
 import { DeleteMessageContainer } from '../delete-message-dialog/container';
-import { closeDeleteMessage } from '../../store/dialogs';
-
+import { closeDeleteMessage, closeLightbox } from '../../store/dialogs';
+import { ReportUserContainer } from '../report-user-dialog/container';
+import { closeReportUserModal } from '../../store/report-user';
+import { Lightbox } from '../lightbox';
 export interface PublicProperties {}
 
 export interface Properties extends PublicProperties {
   displayLogoutModal: boolean;
   isBackupDialogOpen: boolean;
   isRewardsDialogOpen: boolean;
+  isReportUserModalOpen: boolean;
   deleteMessageId: number;
+  lightbox: {
+    isOpen: boolean;
+    media: any[];
+    startingIndex: number;
+  };
 
   closeBackupDialog: () => void;
   closeRewardsDialog: () => void;
   closeDeleteMessage: () => void;
+  closeReportUserModal: () => void;
+  closeLightbox: () => void;
 }
 
 export class Container extends React.Component<Properties> {
@@ -27,7 +37,8 @@ export class Container extends React.Component<Properties> {
     const {
       authentication: { displayLogoutModal },
       matrix: { isBackupDialogOpen },
-      dialogs: { deleteMessageId },
+      dialogs: { deleteMessageId, lightbox },
+      reportUser: { isReportUserModalOpen },
       rewards,
     } = state;
 
@@ -36,11 +47,13 @@ export class Container extends React.Component<Properties> {
       isBackupDialogOpen,
       isRewardsDialogOpen: rewards.showRewardsInPopup,
       deleteMessageId,
+      isReportUserModalOpen,
+      lightbox,
     };
   }
 
   static mapActions(_props: Properties): Partial<Properties> {
-    return { closeBackupDialog, closeRewardsDialog, closeDeleteMessage };
+    return { closeBackupDialog, closeRewardsDialog, closeDeleteMessage, closeReportUserModal, closeLightbox };
   }
 
   closeBackup = () => {
@@ -53,6 +66,14 @@ export class Container extends React.Component<Properties> {
 
   closeDeleteMessage = () => {
     this.props.closeDeleteMessage();
+  };
+
+  closeReportUserModal = () => {
+    this.props.closeReportUserModal();
+  };
+
+  closeLightbox = () => {
+    this.props.closeLightbox();
   };
 
   renderSecureBackupDialog = (): JSX.Element => {
@@ -71,6 +92,26 @@ export class Container extends React.Component<Properties> {
     return <DeleteMessageContainer onClose={this.closeDeleteMessage} />;
   };
 
+  renderReportUserDialog = (): JSX.Element => {
+    return <ReportUserContainer onClose={this.closeReportUserModal} />;
+  };
+
+  renderLightbox = (): JSX.Element => {
+    return (
+      <Lightbox
+        // since we are displaying images from a local blob url (instead of a cloudinary url),
+        // we need to provide a custom provider which just returns the src directly.
+        provider={{
+          fitWithinBox: () => {},
+          getSource: ({ src }) => src,
+        }}
+        items={this.props.lightbox.media}
+        startingIndex={this.props.lightbox.startingIndex}
+        onClose={this.closeLightbox}
+      />
+    );
+  };
+
   render() {
     return (
       <>
@@ -78,6 +119,8 @@ export class Container extends React.Component<Properties> {
         {this.props.displayLogoutModal && this.renderLogoutDialog()}
         {this.props.isRewardsDialogOpen && this.renderRewardsDialog()}
         {this.props.deleteMessageId && this.renderDeleteMessageDialog()}
+        {this.props.isReportUserModalOpen && this.renderReportUserDialog()}
+        {this.props.lightbox.isOpen && this.renderLightbox()}
       </>
     );
   }

@@ -1,6 +1,6 @@
 import * as React from 'react';
 
-import { Channel } from '../../../../store/channels';
+import { Channel, DefaultRoomLabels } from '../../../../store/channels';
 import { ConversationItem } from '../conversation-item';
 import { Input } from '@zero-tech/zui/components';
 import { Item, Option } from '../../lib/types';
@@ -9,6 +9,8 @@ import { itemToOption } from '../../lib/utils';
 import { ScrollbarContainer } from '../../../scrollbar-container';
 import escapeRegExp from 'lodash/escapeRegExp';
 import { getDirectMatches, getIndirectMatches } from './utils';
+import { IconStar1 } from '@zero-tech/zui/icons';
+import { getLastActiveTab, setLastActiveTab } from '../../../../lib/last-tab';
 
 import { bemClassName } from '../../../../lib/bem';
 import './conversation-list-panel.scss';
@@ -19,17 +21,23 @@ export interface Properties {
   conversations: Channel[];
   myUserId: string;
   activeConversationId: string;
+  isLabelDataLoaded: boolean;
+  isCollapsed: boolean;
 
   search: (input: string) => any;
   onCreateConversation: (userId: string) => void;
   onConversationClick: (payload: { conversationId: string }) => void;
-  onFavoriteRoom: (payload: { roomId: string }) => void;
-  onUnfavoriteRoom: (payload: { roomId: string }) => void;
+  onAddLabel: (payload: { roomId: string; label: string }) => void;
+  onRemoveLabel: (payload: { roomId: string; label: string }) => void;
 }
 
-enum Tab {
+export enum Tab {
   All = 'all',
   Favorites = 'favorites',
+  Work = 'work',
+  Social = 'social',
+  Family = 'family',
+  Archived = 'archived',
 }
 
 interface State {
@@ -40,12 +48,64 @@ interface State {
 
 export class ConversationListPanel extends React.Component<Properties, State> {
   scrollContainerRef: React.RefObject<ScrollbarContainer>;
+  tabListRef: React.RefObject<HTMLDivElement>;
   state = { filter: '', userSearchResults: [], selectedTab: Tab.All };
 
   constructor(props) {
     super(props);
     this.scrollContainerRef = React.createRef();
+    this.tabListRef = React.createRef();
   }
+
+  componentDidMount() {
+    if (this.tabListRef.current) {
+      this.tabListRef.current.addEventListener('wheel', this.horizontalScroll, { passive: false });
+    }
+
+    const lastActiveTab = getLastActiveTab();
+    if (lastActiveTab) {
+      this.setState({ selectedTab: lastActiveTab as Tab });
+    } else {
+      this.setInitialTab();
+    }
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.isLabelDataLoaded !== this.props.isLabelDataLoaded) {
+      const lastActiveTab = getLastActiveTab();
+      if (lastActiveTab) {
+        this.setState({ selectedTab: lastActiveTab as Tab });
+      } else {
+        this.setInitialTab();
+      }
+    }
+  }
+
+  componentWillUnmount() {
+    if (this.tabListRef.current) {
+      this.tabListRef.current.removeEventListener('wheel', this.horizontalScroll);
+    }
+  }
+
+  setInitialTab() {
+    if (this.props.isLabelDataLoaded) {
+      const favoriteConversations = this.props.conversations.filter(
+        (c) => c.labels?.includes(DefaultRoomLabels.FAVORITE) && !c.labels?.includes(DefaultRoomLabels.ARCHIVED)
+      );
+      if (favoriteConversations.length > 0) {
+        this.setState({ selectedTab: Tab.Favorites });
+      } else {
+        this.setState({ selectedTab: Tab.All });
+      }
+    }
+  }
+
+  horizontalScroll = (event) => {
+    if (event.deltaY !== 0) {
+      event.preventDefault();
+      this.tabListRef.current.scrollLeft += event.deltaY;
+    }
+  };
 
   scrollToTop = () => {
     if (this.scrollContainerRef.current) {
@@ -73,20 +133,31 @@ export class ConversationListPanel extends React.Component<Properties, State> {
     this.setState({ userSearchResults: filteredItems?.map(itemToOption) });
   };
 
+  getTabConversations() {
+    return {
+      [Tab.All]: this.props.conversations.filter((c) => !c.labels?.includes(DefaultRoomLabels.ARCHIVED)),
+      [Tab.Favorites]: this.getConversationsByLabel(DefaultRoomLabels.FAVORITE),
+      [Tab.Work]: this.getConversationsByLabel(DefaultRoomLabels.WORK),
+      [Tab.Social]: this.getConversationsByLabel(DefaultRoomLabels.SOCIAL),
+      [Tab.Family]: this.getConversationsByLabel(DefaultRoomLabels.FAMILY),
+      [Tab.Archived]: this.getConversationsByLabel(DefaultRoomLabels.ARCHIVED),
+    };
+  }
+
   get filteredConversations() {
+    const archivedConversationIds = this.props.conversations
+      .filter((c) => c.labels?.includes(DefaultRoomLabels.ARCHIVED))
+      .map((c) => c.id);
+
     if (!this.state.filter) {
-      if (this.state.selectedTab === Tab.All) {
-        return this.props.conversations;
-      } else {
-        return this.favoriteConversations;
-      }
+      return this.getTabConversations()[this.state.selectedTab];
     }
 
     const searchRegEx = new RegExp(escapeRegExp(this.state.filter), 'i');
     const directMatches = getDirectMatches(this.props.conversations, searchRegEx);
     const indirectMatches = getIndirectMatches(this.props.conversations, searchRegEx);
 
-    return [...directMatches, ...indirectMatches];
+    return [...directMatches, ...indirectMatches].filter((c) => !archivedConversationIds.includes(c.id));
   }
 
   openExistingConversation = (id: string) => {
@@ -99,42 +170,75 @@ export class ConversationListPanel extends React.Component<Properties, State> {
     this.setState({ filter: '' });
   };
 
-  selectAll = () => {
-    this.setState({ selectedTab: Tab.All });
+  selectTab = (tab) => {
+    this.setState({ selectedTab: tab });
+    setLastActiveTab(tab);
   };
 
-  selectFavorites = () => {
-    this.setState({ selectedTab: Tab.Favorites });
+  onAddLabel = (roomId: string, label) => {
+    this.props.onAddLabel({ roomId, label });
   };
 
-  onFavoriteRoom = (roomId: string) => {
-    this.props.onFavoriteRoom({ roomId });
+  onRemoveLabel = (roomId: string, label) => {
+    this.props.onRemoveLabel({ roomId, label });
   };
 
-  onUnfavoriteRoom = (roomId: string) => {
-    this.props.onUnfavoriteRoom({ roomId });
-  };
-
-  get favoriteConversations() {
-    return this.props.conversations.filter((c) => c.isFavorite);
+  getConversationsByLabel(label) {
+    return this.props.conversations.filter(
+      (c) =>
+        c.labels?.includes(label) &&
+        (label === DefaultRoomLabels.ARCHIVED || !c.labels?.includes(DefaultRoomLabels.ARCHIVED))
+    );
   }
 
-  get allUnreadCount() {
-    const count = this.props.conversations.reduce((acc, c) => acc + c.unreadCount, 0);
+  getUnreadCount(conversations: Channel[]) {
+    const count = conversations
+      .filter((c) => !c.labels?.includes(DefaultRoomLabels.ARCHIVED))
+      .reduce((acc, c) => acc + c.unreadCount.total, 0);
     return count < 99 ? count : '99+';
   }
 
-  get favoritesUnreadCount() {
-    const count = this.favoriteConversations.reduce((acc, c) => acc + c.unreadCount, 0);
-    return count < 99 ? count : '99+';
+  renderTab(id, label, unreadCount) {
+    return (
+      <div key={id} {...cn('tab', this.state.selectedTab === id && 'active')} onClick={() => this.selectTab(id)}>
+        {label}
+        {!!unreadCount && (
+          <div {...cn('tab-badge')}>
+            <span>{unreadCount}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  renderTabList() {
+    const tabConversations = this.getTabConversations();
+    const tabs = [
+      {
+        id: Tab.Favorites,
+        label: <IconStar1 size={18} />,
+        unreadCount: this.getUnreadCount(tabConversations[Tab.Favorites]),
+      },
+      { id: Tab.All, label: 'All', unreadCount: this.getUnreadCount(tabConversations[Tab.All]) },
+      { id: Tab.Work, label: 'Work', unreadCount: this.getUnreadCount(tabConversations[Tab.Work]) },
+      { id: Tab.Family, label: 'Family', unreadCount: this.getUnreadCount(tabConversations[Tab.Family]) },
+      { id: Tab.Social, label: 'Social', unreadCount: this.getUnreadCount(tabConversations[Tab.Social]) },
+      { id: Tab.Archived, label: 'Archived', unreadCount: this.getUnreadCount(tabConversations[Tab.Archived]) },
+    ];
+
+    return (
+      <div {...cn('tab-list')} ref={this.tabListRef}>
+        {tabs.map((tab) => this.renderTab(tab.id, tab.label, tab.unreadCount))}
+      </div>
+    );
   }
 
   renderEmptyConversationList = () => {
-    if (this.state.selectedTab === Tab.Favorites) {
+    if (this.state.selectedTab !== Tab.All) {
       return (
-        <div {...cn('favorites-preview')}>
-          <span>Right click a conversation to add it to your favorites.</span>
-          <div {...cn('favorites-preview-image')}></div>
+        <div {...cn('label-preview')}>
+          <span>{`Right click a conversation to add it to the ${this.state.selectedTab} label.`}</span>
+          <div {...cn('label-preview-image')}></div>
         </div>
       );
     }
@@ -142,37 +246,25 @@ export class ConversationListPanel extends React.Component<Properties, State> {
   };
 
   render() {
+    const isCollapsed = this.props.isCollapsed;
+    const isExpanded = !isCollapsed;
+
     return (
       <>
         <div {...cn('items')}>
-          <div {...cn('items-actions')}>
-            <Input
-              {...cn('items-conversations-search')}
-              onChange={this.searchChanged}
-              size={'small'}
-              type={'search'}
-              value={this.state.filter}
-            />
-          </div>
+          {isExpanded && (
+            <div {...cn('items-actions')}>
+              <Input
+                {...cn('items-conversations-search')}
+                onChange={this.searchChanged}
+                size={'small'}
+                type={'search'}
+                value={this.state.filter}
+              />
+            </div>
+          )}
 
-          <div {...cn('tab-list')}>
-            <div {...cn('tab', this.state.selectedTab === Tab.All && 'active')} onClick={this.selectAll}>
-              All
-              {!!this.allUnreadCount && (
-                <div {...cn('tab-badge')}>
-                  <span>{this.allUnreadCount}</span>
-                </div>
-              )}
-            </div>
-            <div {...cn('tab', this.state.selectedTab === Tab.Favorites && 'active')} onClick={this.selectFavorites}>
-              Favorites
-              {!!this.favoritesUnreadCount && (
-                <div {...cn('tab-badge')}>
-                  <span>{this.favoritesUnreadCount}</span>
-                </div>
-              )}
-            </div>
-          </div>
+          {isExpanded && this.renderTabList()}
 
           <ScrollbarContainer variant='on-hover' ref={this.scrollContainerRef}>
             <div {...cn('item-list')}>
@@ -185,11 +277,15 @@ export class ConversationListPanel extends React.Component<Properties, State> {
                     onClick={this.openExistingConversation}
                     myUserId={this.props.myUserId}
                     activeConversationId={this.props.activeConversationId}
-                    onFavoriteRoom={this.onFavoriteRoom}
-                    onUnfavoriteRoom={this.onUnfavoriteRoom}
+                    onAddLabel={this.onAddLabel}
+                    onRemoveLabel={this.onRemoveLabel}
+                    isCollapsed={isCollapsed}
                   />
                 ))}
-              {this.filteredConversations.length === 0 && !this.state.filter && this.renderEmptyConversationList()}
+              {isExpanded &&
+                this.filteredConversations.length === 0 &&
+                !this.state.filter &&
+                this.renderEmptyConversationList()}
 
               {this.filteredConversations?.length === 0 &&
                 this.state.userSearchResults?.length === 0 &&

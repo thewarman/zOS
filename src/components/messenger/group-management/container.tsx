@@ -50,6 +50,8 @@ export interface Properties extends PublicProperties {
   conversationModeratorIds: string[];
   isOneOnOne: boolean;
   existingConversations: Channel[];
+  isSocialChannel: boolean;
+  users: { [id: string]: User };
 
   back: () => void;
   addSelectedMembers: (payload: MembersSelectedPayload) => void;
@@ -86,6 +88,7 @@ export class Container extends React.Component<Properties> {
       addMemberError: groupManagement.addMemberError,
       errors: groupManagement.errors,
       name: conversation?.name || '',
+      isSocialChannel: conversation?.isSocialChannel || false,
       conversationIcon: conversation?.icon || '',
       currentUser: {
         userId: currentUser?.id,
@@ -99,13 +102,18 @@ export class Container extends React.Component<Properties> {
       } as User,
       otherMembers: conversation ? conversation.otherMembers : [],
       editConversationState: groupManagement.editConversationState,
-      canAddMembers: (isCurrentUserRoomAdmin || isCurrentUserRoomModerator) && !conversation?.isOneOnOne,
-      canEditGroup: isCurrentUserRoomAdmin || isCurrentUserRoomModerator,
-      canLeaveGroup: !isCurrentUserRoomAdmin && conversation?.otherMembers?.length > 1,
+      canAddMembers:
+        (isCurrentUserRoomAdmin || isCurrentUserRoomModerator) &&
+        !conversation?.isOneOnOne &&
+        !conversation?.isSocialChannel,
+      canEditGroup: (isCurrentUserRoomAdmin || isCurrentUserRoomModerator) && !conversation?.isSocialChannel,
+      canLeaveGroup:
+        !isCurrentUserRoomAdmin && conversation?.otherMembers?.length > 1 && !conversation?.isSocialChannel,
       conversationAdminIds,
       conversationModeratorIds,
       isOneOnOne: conversation?.isOneOnOne,
       existingConversations,
+      users: state.normalized['users'] || {},
     };
   }
   static mapActions(_props: Properties): Partial<Properties> {
@@ -124,13 +132,23 @@ export class Container extends React.Component<Properties> {
   }
 
   usersInMyNetworks = async (search: string) => {
+    const { users: usersFromState, receiveSearchResults } = this.props;
+    const myUserId = this.props.currentUser.userId;
+
     const users: MemberNetworks[] = await searchMyNetworksByName(search);
 
-    const filteredUsers = users?.filter((user) => user.id !== this.props.currentUser.userId);
+    const mappedFilteredUsers = users
+      ?.filter((user) => user.id !== myUserId)
+      .map((user) => ({
+        ...user,
+        image: usersFromState[user.id]?.profileImage ?? user.profileImage, // since redux state has local blob url image
+        profileImage: usersFromState[user.id]?.profileImage ?? user.profileImage,
+      }));
 
-    this.props.receiveSearchResults(filteredUsers);
+    // Send the filtered results to the state handler
+    receiveSearchResults(mappedFilteredUsers);
 
-    return filteredUsers?.map((user) => ({ ...user, image: user.profileImage }));
+    return mappedFilteredUsers;
   };
 
   onAddMembers = async (selectedOptions: Option[]) => {
@@ -186,6 +204,7 @@ export class Container extends React.Component<Properties> {
           setLeaveGroupStatus={this.props.setLeaveGroupStatus}
           onMemberClick={this.processMemberConversation}
           openUserProfile={this.props.openUserProfile}
+          isSocialChannel={this.props.isSocialChannel}
         />
         <MemberManagementDialogContainer />
       </>

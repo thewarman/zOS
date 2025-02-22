@@ -1,8 +1,7 @@
 import { testSaga } from 'redux-saga-test-plan';
 import { call } from 'redux-saga/effects';
 import * as matchers from 'redux-saga-test-plan/matchers';
-import { chat } from '../../lib/chat';
-import { receive as receiveUser } from '../users';
+import { chat, getRoomTags } from '../../lib/chat';
 
 import {
   fetchConversations,
@@ -12,11 +11,13 @@ import {
   otherUserJoinedChannel,
   otherUserLeftChannel,
   mapToZeroUsers,
-  fetchUserPresence,
   fetchRoomName,
   roomNameChanged,
   fetchRoomAvatar,
   roomAvatarChanged,
+  loadSecondaryConversationData,
+  fetchRoomGroupType,
+  roomGroupTypeChanged,
 } from './saga';
 
 import { RootState, rootReducer } from '../reducer';
@@ -28,6 +29,8 @@ import { expectSaga } from '../../test/saga';
 import { getZEROUsers } from './api';
 import { mapAdminUserIdToZeroUserId, mapChannelMembers } from './utils';
 import { openFirstConversation } from '../channels/saga';
+import { getUserReadReceiptPreference } from '../user-profile/saga';
+import { clearLastActiveConversation } from '../../lib/last-conversation';
 
 const mockConversation = (id: string) => ({
   id: `conversation_${id}`,
@@ -43,9 +46,9 @@ const MOCK_CONVERSATIONS = [mockConversation('0001'), mockConversation('0002')];
 
 const chatClient = {
   getConversations: () => MOCK_CONVERSATIONS,
-  getUserPresence: () => {},
   getRoomNameById: () => {},
   getRoomAvatarById: () => {},
+  getRoomGroupTypeById: () => {},
 };
 
 describe('channels list saga', () => {
@@ -55,7 +58,8 @@ describe('channels list saga', () => {
         [matchers.call.fn(chat.get), chatClient],
         [matchers.call.fn(chatClient.getConversations), MOCK_CONVERSATIONS],
         [matchers.call.fn(mapToZeroUsers), null],
-        [matchers.fork.fn(fetchUserPresence), null],
+        [matchers.call.fn(getUserReadReceiptPreference), null],
+        [matchers.call.fn(getRoomTags), null],
       ]);
     }
 
@@ -64,6 +68,7 @@ describe('channels list saga', () => {
         .provide([
           [matchers.call.fn(chat.get), chatClient],
           [matchers.call.fn(chatClient.getConversations), MOCK_CONVERSATIONS],
+          [matchers.call.fn(getUserReadReceiptPreference), null],
         ])
         .withReducer(rootReducer, { channelsList: { value: [] } } as RootState)
         .call(chat.get)
@@ -76,6 +81,7 @@ describe('channels list saga', () => {
         .provide([
           [matchers.call.fn(chat.get), chatClient],
           [matchers.call.fn(chatClient.getConversations), MOCK_CONVERSATIONS],
+          [matchers.call.fn(getUserReadReceiptPreference), null],
         ])
         .withReducer(rootReducer, { channelsList: { value: [] } } as RootState)
         .call(chat.get)
@@ -92,9 +98,9 @@ describe('channels list saga', () => {
           [matchers.call.fn(chat.get), chatClient],
           [matchers.call.fn(chatClient.getConversations), MOCK_CONVERSATIONS],
           [matchers.call.fn(mapToZeroUsers), null],
-          [matchers.call.fn(fetchUserPresence), null],
           [matchers.call.fn(mapAdminUserIdToZeroUserId), null],
           [matchers.call.fn(getConversationsBus), conversationsChannelStub],
+          [matchers.call.fn(getUserReadReceiptPreference), null],
         ])
         .withReducer(rootReducer, { channelsList: { value: [] } } as RootState)
         .put(conversationsChannelStub, { type: ConversationEvents.ConversationsLoaded })
@@ -121,6 +127,20 @@ describe('channels list saga', () => {
         'optimistic-id-2',
         'conversation-id',
       ]);
+    });
+
+    it('calls loadSecondaryConversationData', async () => {
+      await subject(fetchConversations)
+        .provide([
+          [matchers.call.fn(chat.get), chatClient],
+          [matchers.call.fn(chatClient.getConversations), MOCK_CONVERSATIONS],
+          [matchers.call.fn(mapToZeroUsers), null],
+          [matchers.call.fn(getUserReadReceiptPreference), null],
+          [matchers.call.fn(getRoomTags), null],
+        ])
+        .withReducer(rootReducer, { channelsList: { value: [] } } as RootState)
+        .fork(loadSecondaryConversationData, [...MOCK_CONVERSATIONS])
+        .run();
     });
   });
 
@@ -185,6 +205,40 @@ describe('channels list saga', () => {
         .call(openFirstConversation)
         .run();
     });
+
+    it('clears last active conversation when user leaves the active conversation', async () => {
+      const roomId = 'conversation-id';
+      const userId = 'user-id';
+
+      const initialState = new StoreBuilder()
+        .withCurrentUser({ id: userId, matrixId: 'matrix-id' })
+        .withUsers({ userId, matrixId: 'matrix-id' })
+        .withConversationList(
+          {
+            id: 'conversation-1',
+            lastMessage: { createdAt: 10000000 } as any,
+            messages: [{ id: '1', createdAt: 10000000 }] as any,
+          },
+          { id: roomId },
+          {
+            id: 'conversation-2',
+            lastMessage: { createdAt: 10000001 } as any,
+            messages: [{ id: '2', createdAt: 10000001 }] as any,
+          }
+        )
+        .withActiveConversation({ id: roomId })
+        .build();
+
+      await expectSaga(userLeftChannel, roomId, 'matrix-id')
+        .provide([
+          [matchers.call.fn(openFirstConversation), null],
+          [matchers.call.fn(clearLastActiveConversation), null],
+        ])
+        .withReducer(rootReducer, initialState)
+        .call(clearLastActiveConversation)
+        .call(openFirstConversation)
+        .run();
+    });
   });
 
   it('removes the channels list and channels', async () => {
@@ -214,7 +268,6 @@ describe('channels list saga', () => {
     function subject(...args: Parameters<typeof expectSaga>) {
       return expectSaga(...args).provide([
         [matchers.call.fn(mapToZeroUsers), null],
-        [matchers.call.fn(fetchUserPresence), null],
       ]);
     }
 
@@ -293,57 +346,64 @@ describe('channels list saga', () => {
   });
 
   describe(mapToZeroUsers, () => {
-    const rooms = [
-      {
-        id: 'room-1',
-        otherMembers: [],
-        memberHistory: [
-          { matrixId: 'matrix-id-1', userId: 'matrix-id-1' },
-          { matrixId: 'matrix-id-2', userId: 'matrix-id-2' },
-        ],
-        messages: [],
-        moderatorIds: [],
-      },
-      {
-        id: 'room-2',
-        otherMembers: [],
-        memberHistory: [
-          { matrixId: 'matrix-id-3', userId: 'matrix-id-3' },
-        ],
-        messages: [],
-        moderatorIds: [],
-      },
-    ] as any;
+    let rooms, zeroUsers;
 
-    const zeroUsers = [
-      {
-        userId: 'user-1',
-        matrixId: 'matrix-id-1',
-        profileId: 'profile-1',
-        firstName: 'first-1',
-        lastName: 'last-1',
-        primaryZID: 'primary-zid-1',
-        displaySubHandle: 'primary-zid-1',
-      },
-      {
-        userId: 'user-2',
-        matrixId: 'matrix-id-2',
-        profileId: 'profile-2',
-        firstName: 'first-2',
-        lastName: 'last-2',
-        primaryZID: 'primary-zid-2',
-        displaySubHandle: 'primary-zid-2',
-      },
-      {
-        userId: 'user-3',
-        matrixId: 'matrix-id-3',
-        profileId: 'profile-3',
-        firstName: 'first-3',
-        lastName: 'last-3',
-        primaryZID: '',
-        displaySubHandle: '',
-      },
-    ] as any;
+    beforeEach(() => {
+      rooms = [
+        {
+          id: 'room-1',
+          otherMembers: [],
+          memberHistory: [
+            { matrixId: 'matrix-id-1', userId: 'matrix-id-1' },
+            { matrixId: 'matrix-id-2', userId: 'matrix-id-2' },
+          ],
+          messages: [],
+          moderatorIds: [],
+        },
+        {
+          id: 'room-2',
+          otherMembers: [],
+          memberHistory: [
+            { matrixId: 'matrix-id-3', userId: 'matrix-id-3' },
+          ],
+          messages: [],
+          moderatorIds: [],
+        },
+      ] as any;
+
+      zeroUsers = [
+        {
+          userId: 'user-1',
+          matrixId: 'matrix-id-1',
+          profileId: 'profile-1',
+          firstName: 'first-1',
+          lastName: 'last-1',
+          primaryZID: 'primary-zid-1',
+          displaySubHandle: 'primary-zid-1',
+          profileImage: 'mxc://profile-image-url-1',
+        },
+        {
+          userId: 'user-2',
+          matrixId: 'matrix-id-2',
+          profileId: 'profile-2',
+          firstName: 'first-2',
+          lastName: 'last-2',
+          primaryZID: 'primary-zid-2',
+          displaySubHandle: 'primary-zid-2',
+          profileImage: 'mxc://profile-image-url-2',
+        },
+        {
+          userId: 'user-3',
+          matrixId: 'matrix-id-3',
+          profileId: 'profile-3',
+          firstName: 'first-3',
+          lastName: 'last-3',
+          primaryZID: '',
+          displaySubHandle: '',
+          profileImage: 'mxc://profile-image-url-3',
+        },
+      ] as any;
+    });
 
     it('calls getZEROUsers by merging all matrixIds', async () => {
       await expectSaga(mapToZeroUsers, rooms)
@@ -352,7 +412,7 @@ describe('channels list saga', () => {
         .run();
     });
 
-    it('creates map for zero users after fetching from api', async () => {
+    it('creates map for zero users', async () => {
       const expectedMap = {
         'matrix-id-1': {
           userId: 'user-1',
@@ -362,6 +422,7 @@ describe('channels list saga', () => {
           lastName: 'last-1',
           primaryZID: 'primary-zid-1',
           displaySubHandle: 'primary-zid-1',
+          profileImage: 'mxc://profile-image-url-1',
         },
         'matrix-id-2': {
           userId: 'user-2',
@@ -371,6 +432,7 @@ describe('channels list saga', () => {
           lastName: 'last-2',
           primaryZID: 'primary-zid-2',
           displaySubHandle: 'primary-zid-2',
+          profileImage: 'mxc://profile-image-url-2',
         },
         'matrix-id-3': {
           userId: 'user-3',
@@ -380,33 +442,37 @@ describe('channels list saga', () => {
           lastName: 'last-3',
           primaryZID: '',
           displaySubHandle: '',
+          profileImage: 'mxc://profile-image-url-3',
         },
       };
 
       await expectSaga(mapToZeroUsers, rooms)
         .withReducer(rootReducer)
-        .provide([[call(getZEROUsers, ['matrix-id-1', 'matrix-id-2', 'matrix-id-3']), zeroUsers]])
+        .provide([
+          [call(getZEROUsers, ['matrix-id-1', 'matrix-id-2', 'matrix-id-3']), zeroUsers],
+        ])
         .call(mapChannelMembers, rooms, expectedMap)
         .run();
     });
 
-    it('maps member history of channels to ZERO Users and save normalized state', async () => {
+    it('maps member history of channels to ZERO Users', async () => {
       const initialState = new StoreBuilder().withConversationList(rooms[0], rooms[1]);
 
-      const { storeState } = await expectSaga(mapToZeroUsers, rooms)
+      await expectSaga(mapToZeroUsers, rooms)
         .withReducer(rootReducer, initialState.build())
-        .provide([[call(getZEROUsers, ['matrix-id-1', 'matrix-id-2', 'matrix-id-3']), zeroUsers]])
+        .provide([
+          [call(getZEROUsers, ['matrix-id-1', 'matrix-id-2', 'matrix-id-3']), zeroUsers],
+        ])
         .run();
 
-      const channel1 = denormalizeChannel('room-1', storeState);
-      expect(channel1.memberHistory).toIncludeSameMembers([
+      expect(rooms[0].memberHistory).toIncludeSameMembers([
         {
           matrixId: 'matrix-id-1',
           userId: 'user-1',
           profileId: 'profile-1',
           firstName: 'first-1',
           lastName: 'last-1',
-          profileImage: undefined,
+          profileImage: 'mxc://profile-image-url-1',
           primaryZID: 'primary-zid-1',
           displaySubHandle: 'primary-zid-1',
         },
@@ -416,21 +482,20 @@ describe('channels list saga', () => {
           profileId: 'profile-2',
           firstName: 'first-2',
           lastName: 'last-2',
-          profileImage: undefined,
+          profileImage: 'mxc://profile-image-url-2',
           primaryZID: 'primary-zid-2',
           displaySubHandle: 'primary-zid-2',
         },
       ]);
 
-      const channel2 = denormalizeChannel('room-2', storeState);
-      expect(channel2.memberHistory).toIncludeSameMembers([
+      expect(rooms[1].memberHistory).toIncludeSameMembers([
         {
           matrixId: 'matrix-id-3',
           userId: 'user-3',
           profileId: 'profile-3',
           firstName: 'first-3',
           lastName: 'last-3',
-          profileImage: undefined,
+          profileImage: 'mxc://profile-image-url-3',
           primaryZID: '',
           displaySubHandle: '',
         },
@@ -448,7 +513,9 @@ describe('channels list saga', () => {
 
       await expectSaga(mapToZeroUsers, rooms)
         .withReducer(rootReducer, initialState.build())
-        .provide([[call(getZEROUsers, ['matrix-id-1', 'matrix-id-2', 'matrix-id-3']), zeroUsers]])
+        .provide([
+          [call(getZEROUsers, ['matrix-id-1', 'matrix-id-2', 'matrix-id-3']), zeroUsers],
+        ])
         .run();
 
       expect(rooms[0].messages[0].sender).toStrictEqual({
@@ -456,7 +523,7 @@ describe('channels list saga', () => {
         profileId: 'profile-1',
         firstName: 'first-1',
         lastName: 'last-1',
-        profileImage: undefined,
+        profileImage: 'mxc://profile-image-url-1',
         primaryZID: 'primary-zid-1',
         displaySubHandle: 'primary-zid-1',
       });
@@ -465,7 +532,7 @@ describe('channels list saga', () => {
         profileId: 'profile-2',
         firstName: 'first-2',
         lastName: 'last-2',
-        profileImage: undefined,
+        profileImage: 'mxc://profile-image-url-2',
         primaryZID: 'primary-zid-2',
         displaySubHandle: 'primary-zid-2',
       });
@@ -474,7 +541,7 @@ describe('channels list saga', () => {
         profileId: 'profile-3',
         firstName: 'first-3',
         lastName: 'last-3',
-        profileImage: undefined,
+        profileImage: 'mxc://profile-image-url-3',
         primaryZID: '',
         displaySubHandle: '',
       });
@@ -488,104 +555,13 @@ describe('channels list saga', () => {
 
       await expectSaga(mapToZeroUsers, rooms)
         .withReducer(rootReducer, initialState.build())
-        .provide([[call(getZEROUsers, ['matrix-id-1', 'matrix-id-2', 'matrix-id-3']), zeroUsers]])
+        .provide([
+          [call(getZEROUsers, ['matrix-id-1', 'matrix-id-2', 'matrix-id-3']), zeroUsers],
+        ])
         .run();
 
       expect(rooms[0].moderatorIds).toIncludeSameMembers(['user-1', 'user-2']);
       expect(rooms[1].moderatorIds).toIncludeSameMembers(['user-3']);
-    });
-  });
-
-  describe(fetchUserPresence, () => {
-    function subject(users, provide = []) {
-      return expectSaga(fetchUserPresence, users).provide([
-        [matchers.call.fn(chat.get), chatClient],
-        ...provide,
-      ]);
-    }
-
-    const mockOtherMembers = [{ matrixId: 'member_001' }, { matrixId: 'member_002' }, { matrixId: 'member_003' }];
-
-    it('fetches and updates user presence data', async () => {
-      const mockPresenceData = {
-        lastSeenAt: '2023-01-01T00:00:00.000Z',
-        isOnline: true,
-      };
-
-      await subject(mockOtherMembers, [
-        [matchers.call([chatClient, chatClient.getUserPresence], 'member_001'), mockPresenceData],
-        [matchers.call([chatClient, chatClient.getUserPresence], 'member_002'), mockPresenceData],
-        [matchers.call([chatClient, chatClient.getUserPresence], 'member_003'), mockPresenceData],
-      ])
-        .call(chat.get)
-        .call([chatClient, chatClient.getUserPresence], 'member_001')
-        .call([chatClient, chatClient.getUserPresence], 'member_002')
-        .call([chatClient, chatClient.getUserPresence], 'member_003')
-        .run();
-    });
-
-    it('does not fail if member does not have matrixId', async () => {
-      const conversationsWithMissingMatrixId = [{ otherMembers: [{ matrixId: null }] }];
-
-      await subject(conversationsWithMissingMatrixId).call(chat.get).not.call(chatClient.getUserPresence).run();
-    });
-
-    it('dispatches receiveUser action with correct data when user is online', () => {
-      const mockUsers = [
-        {
-          userId: 'user_1',
-          matrixId: 'matrix_1',
-          lastSeenAt: '',
-          isOnline: false,
-        },
-      ];
-
-      const mockPresenceData1 = { lastSeenAt: '2023-10-17T10:00:00.000Z', isOnline: true };
-
-      testSaga(fetchUserPresence, mockUsers)
-        .next()
-        .call(chat.get)
-        .next(chatClient)
-        .call([chatClient, chatClient.getUserPresence], 'matrix_1')
-        .next(mockPresenceData1)
-        .put(
-          receiveUser({
-            userId: mockUsers[0].userId,
-            lastSeenAt: mockPresenceData1.lastSeenAt,
-            isOnline: mockPresenceData1.isOnline,
-          })
-        )
-        .next()
-        .isDone();
-    });
-
-    it('dispatches receiveUser action with lastSeenAt null and isOnline false when user is offline', () => {
-      const mockUsers = [
-        {
-          userId: 'user_1',
-          matrixId: 'matrix_1',
-          lastSeenAt: '',
-          isOnline: false,
-        },
-      ];
-
-      const mockPresenceData1 = { lastSeenAt: null, isOnline: false };
-
-      testSaga(fetchUserPresence, mockUsers)
-        .next()
-        .call(chat.get)
-        .next(chatClient)
-        .call([chatClient, chatClient.getUserPresence], 'matrix_1')
-        .next(mockPresenceData1)
-        .put(
-          receiveUser({
-            userId: mockUsers[0].userId,
-            lastSeenAt: mockPresenceData1.lastSeenAt,
-            isOnline: mockPresenceData1.isOnline,
-          })
-        )
-        .next()
-        .isDone();
     });
   });
 
@@ -644,6 +620,38 @@ describe('channels list saga', () => {
         .call([chatClient, chatClient.getRoomAvatarById], 'room-id')
         .next(mockRoomAvatar)
         .call(roomAvatarChanged, 'room-id', mockRoomAvatar)
+        .next()
+        .isDone();
+    });
+  });
+
+  describe(fetchRoomGroupType, () => {
+    function subject(roomId: string, provide = []) {
+      return expectSaga(fetchRoomGroupType, roomId).provide([
+        [matchers.call.fn(chat.get), chatClient],
+        ...provide,
+      ]);
+    }
+
+    const mockGroupType = 'some-group-type';
+
+    it('fetches and updates room group type data', async () => {
+      await subject('room-id', [
+        [matchers.call([chatClient, chatClient.getRoomGroupTypeById], 'room-id'), mockGroupType],
+      ])
+        .call(chat.get)
+        .call([chatClient, chatClient.getRoomGroupTypeById], 'room-id')
+        .run();
+    });
+
+    it('calls roomGroupTypeChanged when group type is fetched', () => {
+      testSaga(fetchRoomGroupType, 'room-id')
+        .next()
+        .call(chat.get)
+        .next(chatClient)
+        .call([chatClient, chatClient.getRoomGroupTypeById], 'room-id')
+        .next(mockGroupType)
+        .call(roomGroupTypeChanged, 'room-id', mockGroupType)
         .next()
         .isDone();
     });

@@ -1,0 +1,38 @@
+@use '../../../../variables' as variables;
+
+.Wrapper {
+  max-width: 600px;
+  pointer-events: all;
+}
+
+.Panel {
+  padding: 0;
+}
+
+.Details {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  gap: calc(variables.$default-gap * 2);
+  border-top: none;
+  padding: 16px;
+}
+
+.Post {
+  width: 100%;
+  box-sizing: border-box;
+
+  p {
+    font-size: 18px;
+  }
+}
+
+.Message {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  margin-top: 64px;
+}

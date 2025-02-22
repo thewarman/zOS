@@ -1,0 +1,40 @@
+@use '~@zero-tech/zui/styles/theme' as theme;
+
+.Header {
+  box-sizing: border-box;
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  overflow: hidden;
+
+  .Details {
+    all: unset;
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+
+  button.Details {
+    cursor: pointer;
+  }
+
+  .End {
+    display: flex;
+    gap: 8px;
+  }
+
+  .Title {
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 17px;
+    color: theme.$color-greyscale-12;
+    margin-bottom: 2px;
+
+    > div {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+}

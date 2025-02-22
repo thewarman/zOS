@@ -1,4 +1,4 @@
-import { call, put, select, takeLatest } from 'redux-saga/effects';
+import { call, put, select, spawn, takeLatest } from 'redux-saga/effects';
 import { SagaActionTypes, State, setErrors, setLoadingZIDs, setOwnedZIDs, setState } from '.';
 import {
   editUserProfile as apiEditUserProfile,
@@ -6,10 +6,18 @@ import {
   fetchOwnedZIDs as fetchOwnedZIDsApi,
 } from './api';
 import { ProfileDetailsErrors } from '../registration';
-import { uploadImage } from '../registration/api';
 import cloneDeep from 'lodash/cloneDeep';
 import { currentUserSelector } from '../authentication/saga';
 import { setUser } from '../authentication';
+import { uploadFile, editProfile as matrixEditProfile } from '../../lib/chat';
+
+export function* getLocalUrl(file) {
+  if (!file) {
+    return '';
+  }
+
+  return yield call(URL.createObjectURL, file);
+}
 
 export function* editProfile(action) {
   const { name, image, primaryZID } = action.payload;
@@ -19,8 +27,8 @@ export function* editProfile(action) {
     let profileImage = '';
     if (image) {
       try {
-        const uploadResult = yield call(uploadImage, image);
-        profileImage = uploadResult.url;
+        const uploadRes = yield call(uploadFile, image);
+        profileImage = uploadRes;
       } catch (error) {
         yield put(setErrors([ProfileDetailsErrors.FILE_UPLOAD_ERROR]));
         return;
@@ -33,7 +41,10 @@ export function* editProfile(action) {
       profileImage: profileImage === '' ? undefined : profileImage,
     });
     if (response.success) {
-      yield call(updateUserProfile, { name, profileImage, primaryZID });
+      yield spawn(matrixEditProfile, { avatarUrl: profileImage, displayName: name });
+
+      const localUrl = yield call(getLocalUrl, image);
+      yield call(updateUserProfile, { name, profileImage: localUrl, primaryZID });
       yield put(setState(State.SUCCESS));
       return;
     }

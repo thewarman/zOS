@@ -18,19 +18,19 @@ import {
   createAccount as apiCreateAccount,
   createWeb3Account as apiCreateWeb3Account,
   completeAccount as apiCompleteAccount,
-  uploadImage,
+  addEmailAccount as apiAddEmailAccount,
 } from './api';
 import { fetchCurrentUser } from '../authentication/api';
 import { nonce as nonceApi } from '../authentication/api';
 import { isPasswordValid } from '../../lib/password';
-import { getSignedTokenForConnector } from '../web3/saga';
+import { getSignedToken } from '../web3/saga';
 import { getAuthChannel, Events as AuthEvents } from '../authentication/channels';
 import { completeUserLogin } from '../authentication/saga';
 import { getHistory } from '../../lib/browser';
 import { setIsComplete as setPageLoadComplete } from '../page-load';
 import { createConversation } from '../channels-list/saga';
 import { getZEROUsers as getZEROUsersAPI } from '../channels-list/api';
-import { chat } from '../../lib/chat';
+import { getProvider as getIndexedDbProvider } from '../../lib/storage/idb';
 import { receive as receiveUser } from '../users';
 
 export function* validateInvite(action) {
@@ -94,12 +94,10 @@ export function* createAccount(action) {
   return false;
 }
 
-export function* authorizeAndCreateWeb3Account(action) {
-  const { connector } = action.payload;
-
+export function* authorizeAndCreateWeb3Account() {
   yield put(setLoading(true));
   try {
-    let result = yield call(getSignedTokenForConnector, connector);
+    let result = yield call(getSignedToken);
     if (!result.success) {
       yield put(setErrors([result.error]));
       return false;
@@ -143,6 +141,11 @@ export function validateAccountInfo({ email, password }) {
   return validationErrors;
 }
 
+export function* cacheProfileImage(image) {
+  const provider = yield call(getIndexedDbProvider);
+  yield call([provider, provider.put], 'profileImage', image);
+}
+
 export function* updateProfile(action) {
   const { name, image } = action.payload;
   yield put(setLoading(true));
@@ -152,19 +155,14 @@ export function* updateProfile(action) {
       return false;
     }
 
-    let profileImage = '';
+    // we cache the image for now, as we need to upload it to the homeserver later
+    // (when the matrix client is initialized)
     if (image) {
-      try {
-        const uploadResult = yield call(uploadImage, image);
-        profileImage = uploadResult.url;
-      } catch (error) {
-        yield put(setErrors([ProfileDetailsErrors.FILE_UPLOAD_ERROR]));
-        return false;
-      }
+      yield call(cacheProfileImage, image);
     }
 
     const { userId, inviteCode } = yield select((state) => state.registration);
-    const response = yield call(apiCompleteAccount, { userId, name, inviteCode, profileImage });
+    const response = yield call(apiCompleteAccount, { userId, name, inviteCode, profileImage: '' });
     if (response.success) {
       yield put(setFirstTimeLogin(true));
       yield call(completeUserLogin);
@@ -204,7 +202,7 @@ function* createAccountPage() {
     if (email) {
       success = yield call(createAccount, email);
     } else if (web3) {
-      success = yield call(authorizeAndCreateWeb3Account, web3);
+      success = yield call(authorizeAndCreateWeb3Account);
     }
   } while (!success);
 }
@@ -252,11 +250,35 @@ export function* createWelcomeConversation(userId: string, inviter: { id: string
     const inviterZeroUserData = yield call(getZEROUsersAPI, [inviter.matrixId]);
     const inviterUser = inviterZeroUserData?.[0];
     yield put(receiveUser(inviterUser));
-
-    const createdConversation = yield call(createConversation, [inviterUser.userId], '', null);
-    const createdConversationId = createdConversation.id;
-
-    const chatClient = yield call(chat.get);
-    yield call([chatClient, chatClient.userJoinedInviterOnZero], createdConversationId, inviterUser.userId, userId);
+    yield call(createConversation, [inviterUser.userId], '', null);
   } catch (error) {}
+}
+
+export function* addEmailAccount({ email, password }: { email: string; password: string }) {
+  yield put(setLoading(true));
+  try {
+    const validationErrors = yield call(validateAccountInfo, { email, password });
+    if (validationErrors.length) {
+      yield put(setErrors(validationErrors));
+      return false;
+    }
+
+    const result = yield call(apiAddEmailAccount, {
+      email: email.trim(),
+      password,
+    });
+
+    if (result.success) {
+      yield put(setErrors([]));
+      return result;
+    } else {
+      yield put(setErrors([result.response]));
+    }
+  } catch (e) {
+    yield put(setErrors([AccountCreationErrors.UNKNOWN_ERROR]));
+  } finally {
+    yield put(setLoading(false));
+  }
+
+  return false;
 }

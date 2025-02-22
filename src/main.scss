@@ -27,6 +27,17 @@ $border-color-hover: theme-zui.$color-primary-7;
 
   pointer-events: none;
 
+  .app-main-wrapper {
+    display: flex;
+    justify-content: space-between;
+    margin: 0 auto;
+    width: 100%;
+
+    @media (min-width: 2561px) {
+      width: unset;
+    }
+  }
+
   &.messenger-full-screen {
     justify-content: start;
   }
@@ -51,7 +62,11 @@ $border-color-hover: theme-zui.$color-primary-7;
     @include main-background;
 
     &.static-green-particles {
-      background-image: url(cloudAsset('AbstractBGwithoutShine.jpg'));
+      background-image: url(cloudAsset('GreenParticlesStatic.png'));
+    }
+
+    &.static-lights-out {
+      background: rgba(0, 0, 0, 1);
     }
 
     &.animated {

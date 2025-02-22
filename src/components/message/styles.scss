@@ -1,6 +1,7 @@
 @use '~@zero-tech/zui/styles/theme' as theme;
 @use '../../shared-components/theme-engine/theme' as themeDeprecated;
 @import '../../glass';
+@import '../../animation';
 
 .message {
   display: flex;
@@ -12,6 +13,10 @@
 
   &--owner {
     flex-direction: row-reverse;
+
+    .message__block {
+      background: #400999;
+    }
 
     .message__block-body {
       transition: background-color 0.3s ease-out;
@@ -33,20 +38,29 @@
     }
 
     .message__block {
-      @include flat-thin;
       border-radius: var(--border-owner-radius); // set in message__message-row
 
       &--edit {
         border-radius: 8px 2px 0px 8px;
-        // stretch the edit block to 100% width
         width: 100vw;
-        max-width: 100%;
+        max-width: 560px;
+      }
+
+      &--reply {
+        min-width: 300px;
       }
     }
 
     .message__menu {
-      transform: translateX(100%);
+      flex-direction: row-reverse;
     }
+  }
+
+  &__reaction-picker-container {
+    position: absolute;
+    bottom: 75px;
+    z-index: 12;
+    color: theme.$color-greyscale-11;
   }
 
   &__block {
@@ -57,10 +71,19 @@
     z-index: 1;
 
     border-radius: var(--border-radius); // set in message__message-row
-    @include flat-thick;
+    background: #111213;
 
     &--edit {
       width: 100%;
+    }
+
+    &--reply {
+      min-width: 300px;
+    }
+
+    &--parent-message-highlight {
+      animation: background-highlight 7s ease-in-out forwards;
+      transform-origin: center;
     }
   }
 
@@ -95,26 +118,85 @@
       margin: auto;
       max-width: 100%;
       max-height: 640px;
+      animation: fadein 1s ease-in forwards;
     }
+
+    animation: fadein 1s ease-in forwards;
   }
 
   &__block-audio {
+    padding: 12px 8px 0 8px;
+
     audio {
-      width: 100%;
       min-width: 300px;
+      height: 40px;
+      width: 100%;
+
+      &::-webkit-media-controls-enclosure {
+        background: transparent;
+      }
+
+      &::-webkit-media-controls-panel {
+        background-color: #111213;
+      }
+
+      &::-webkit-media-controls-current-time-display,
+      &::-webkit-media-controls-time-remaining-display {
+        color: theme.$color-secondary-11;
+        font-size: 12px;
+        text-shadow: none;
+      }
+
+      &::-webkit-media-controls-play-button {
+        background-color: theme.$color-secondary-11;
+        border-radius: 8px;
+        height: 18px;
+      }
+
+      &::-webkit-media-controls-timeline {
+        background-color: theme.$color-secondary-11;
+        border-radius: 8px;
+        margin: 0 8px;
+        padding: 8px;
+      }
+
+      &::-webkit-media-controls-mute-button,
+      &::-webkit-media-controls-volume-slider,
+      &::-webkit-media-controls-volume-control-container {
+        display: none;
+      }
     }
   }
 
   &__block-video {
+    position: relative;
+    cursor: pointer;
+    width: 100%;
+
     video {
-      min-height: 186px;
-      width: 100%;
-      border-radius: 8px;
+      display: block;
+      margin: auto;
+      max-width: 100%;
+      max-height: 640px;
+      animation: fadein 1s ease-in forwards;
     }
+
+    animation: fadein 1s ease-in forwards;
   }
 
   &__block-edit {
     padding: 8px;
+  }
+
+  &__footer-container {
+    display: flex;
+    width: 100%;
+    justify-content: flex-end;
+
+    &--has-reactions {
+      justify-content: space-between;
+      gap: 16px;
+    }
   }
 
   &__footer {
@@ -127,6 +209,7 @@
     font-size: 12px;
     font-weight: 400;
     line-height: 14px;
+    white-space: nowrap;
   }
 
   &__time {
@@ -141,21 +224,19 @@
   }
 
   &__menu {
+    display: flex;
     align-self: center;
-    transition: opacity 0s ease-in-out, transform 0.1s ease-in-out;
-    transform: translateX(-100%);
     opacity: 0;
+    position: relative;
     // Sometimes we render an empty menu. This ensures consistency of width of the message bubble.
-    min-width: 32px;
+    min-width: 64px;
   }
 
   .menu--open {
-    transform: unset;
     opacity: 1;
   }
 
   .menu--force-visible {
-    transform: unset;
     opacity: 1;
   }
 
@@ -188,10 +269,6 @@
     }
   }
 
-  .emoji-mart-emoji {
-    height: 19px;
-  }
-
   &__user-mention {
     background-color: themeDeprecated.$accent-color;
     color: black;
@@ -200,5 +277,103 @@
     margin-bottom: 0.8px;
     margin-top: 0.8px;
     display: inline-block;
+  }
+
+  &__sent-icon {
+    padding: 0 2px;
+
+    @include glass-text-secondary-color;
+  }
+
+  &__read-icon-container {
+    position: relative;
+    display: inline-block;
+    width: 18px;
+    height: 14px;
+  }
+
+  &__read-icon {
+    position: absolute;
+
+    &--read {
+      color: theme.$color-secondary-11;
+    }
+
+    &--delivered {
+      @include glass-text-secondary-color;
+    }
+
+    &:first-child {
+      left: 0;
+    }
+
+    &:last-child {
+      left: 7px;
+    }
+  }
+
+  &__placeholder-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: auto;
+    max-width: 100%;
+    max-height: 640px;
+    position: relative;
+
+    animation: fadein 1s ease-in forwards;
+  }
+
+  &__placeholder-content {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    position: relative;
+    border-radius: 8px;
+  }
+
+  &__placeholder-box {
+    width: 100%;
+    height: 100%;
+    filter: blur(2px);
+    background-color: rgba(54, 93, 87, 0.2);
+    border: 1px solid rgba(52, 56, 60, 0.5);
+  }
+
+  &__icon {
+    position: absolute;
+
+    &--failed {
+      color: theme.$color-failure-11;
+    }
+
+    &--loading {
+      padding: 4px;
+      border-top: 0.125rem solid theme.$color-greyscale-11;
+    }
+  }
+
+  &__reactions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  &__reaction-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    line-height: 14px;
+  }
+}
+
+@keyframes background-highlight {
+  from,
+  to {
+    background-color: theme.$color-greyscale-4;
   }
 }

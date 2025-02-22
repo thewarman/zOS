@@ -1,9 +1,18 @@
 import { currentUserSelector } from './../authentication/saga';
 import getDeepProperty from 'lodash.get';
-import { takeLatest, put, call, select, delay, spawn } from 'redux-saga/effects';
-import { EditMessageOptions, SagaActionTypes, schema, removeAll, denormalize, MediaType, MessageSendStatus } from '.';
+import { takeLatest, put, call, select, delay, spawn, takeEvery } from 'redux-saga/effects';
+import {
+  EditMessageOptions,
+  SagaActionTypes,
+  schema,
+  removeAll,
+  denormalize,
+  MediaType,
+  MessageSendStatus,
+  MediaDownloadStatus,
+} from '.';
 import { receive as receiveMessage } from './';
-import { ConversationStatus, MessagesFetchState } from '../channels';
+import { ConversationStatus, MessagesFetchState, DefaultRoomLabels } from '../channels';
 import { markConversationAsRead, rawChannelSelector, receiveChannel } from '../channels/saga';
 import uniqBy from 'lodash.uniqby';
 
@@ -14,13 +23,15 @@ import { send as sendBrowserMessage, mapMessage } from '../../lib/browser';
 import { takeEveryFromBus } from '../../lib/saga';
 import { Events as ChatEvents, getChatBus } from '../chat/bus';
 import { Uploadable, createUploadableFile } from './uploadable';
-import { chat } from '../../lib/chat';
+import { chat, getMessageEmojiReactions, getMessageReadReceipts, sendEmojiReactionEvent } from '../../lib/chat';
 import { User } from '../channels';
 import { mapMessageSenders } from './utils.matrix';
 import { uniqNormalizedList } from '../utils';
 import { NotifiableEventType } from '../../lib/chat/matrix/types';
 import { mapAdminUserIdToZeroUserId } from '../channels-list/utils';
 import { ChatMessageEvents, getChatMessageBus } from './messages';
+import { decryptFile } from '../../lib/chat/matrix/media';
+import { getUserSubHandle } from '../../lib/user';
 
 export interface Payload {
   channelId: string;
@@ -81,6 +92,10 @@ const _isActive = (roomId) => (state) => {
   return roomId === state.chat.activeConversationId;
 };
 
+export const roomLabelSelector = (channelId) => (state) => {
+  return getDeepProperty(state, `normalized.channels['${channelId}'].labels`, []);
+};
+
 export function* getLocalZeroUsersMap() {
   const users = yield select((state) => state.normalized.users || {});
   const zeroUsersMap: { [matrixId: string]: User } = {};
@@ -89,6 +104,7 @@ export function* getLocalZeroUsersMap() {
   }
   // map current user as well
   const currentUser = yield select(currentUserSelector());
+  const displaySubHandle = getUserSubHandle(currentUser?.primaryZID, currentUser?.primaryWalletAddress);
   if (currentUser) {
     zeroUsersMap[currentUser.matrixId] = {
       userId: currentUser.id,
@@ -96,6 +112,7 @@ export function* getLocalZeroUsersMap() {
       firstName: currentUser.profileSummary.firstName,
       lastName: currentUser.profileSummary.lastName,
       profileImage: currentUser.profileSummary.profileImage,
+      displaySubHandle,
     } as User;
   }
 
@@ -103,8 +120,11 @@ export function* getLocalZeroUsersMap() {
 }
 
 export function* mapMessagesAndPreview(messages, channelId) {
+  const reactions = yield call(getMessageEmojiReactions, channelId);
+
   const zeroUsersMap = yield call(mapMessageSenders, messages, channelId);
   yield call(mapAdminUserIdToZeroUserId, [{ messages }], zeroUsersMap);
+
   for (const message of messages) {
     if (message.isHidden) {
       message.message = 'Message hidden';
@@ -113,6 +133,15 @@ export function* mapMessagesAndPreview(messages, channelId) {
     const preview = yield call(getPreview, message.message);
     if (preview) {
       message.preview = preview;
+    }
+
+    const relatedReactions = reactions.filter((reaction) => reaction.eventId === message.id);
+    if (relatedReactions.length > 0) {
+      message.reactions = relatedReactions.reduce((acc, reaction) => {
+        if (!reaction.key) return acc; // Skip if key is undefined
+        acc[reaction.key] = (acc[reaction.key] || 0) + 1;
+        return acc;
+      }, message.reactions || {});
     }
   }
 
@@ -128,7 +157,6 @@ export function* fetch(action) {
 
   let messagesResponse: any;
   let messages: any[];
-
   try {
     const chatClient = yield call(chat.get);
 
@@ -155,7 +183,27 @@ export function* fetch(action) {
       hasLoadedMessages: true,
       messagesFetchStatus: MessagesFetchState.SUCCESS,
     });
+
+    if (yield select(_isActive(channelId))) {
+      const currentUser = yield select(currentUserSelector());
+
+      let latestUserMessage = null;
+      for (let i = messages?.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+
+        if (msg?.sender?.userId === currentUser?.id) {
+          latestUserMessage = msg;
+
+          break;
+        }
+      }
+
+      if (latestUserMessage) {
+        yield call(mapMessageReadByUsers, latestUserMessage.id, channelId);
+      }
+    }
   } catch (error) {
+    console.log('Error fetching messages', error);
     yield call(receiveChannel, { id: channelId, messagesFetchStatus: MessagesFetchState.FAILED });
   }
 }
@@ -267,7 +315,15 @@ export function* performSend(channelId, message, mentionedUserIds, parentMessage
     null,
     optimisticId
   );
-  return yield sendMessage(messageCall, channelId, optimisticId);
+
+  const result = yield sendMessage(messageCall, channelId, optimisticId);
+
+  // Ensure media data is preserved in the sent message
+  if (result && parentMessage) {
+    result.parentMessageMedia = parentMessage.media;
+  }
+
+  return result;
 }
 
 // note: we're not replacing the optimistic message with the real message here anymore
@@ -385,12 +441,14 @@ export function* receiveDelete(action) {
 
 let savedMessages = [];
 export function* receiveNewMessage(action) {
+  const BATCH_INTERVAL = 500;
+
   savedMessages.push(action.payload);
   if (savedMessages.length > 1) {
     // we already have a leading event that's awaiting the debounce delay
     return;
   }
-  yield delay(500);
+  yield delay(BATCH_INTERVAL);
   // Clone and empty so follow up events can debounce again
   const batchedPayloads = [...savedMessages];
   savedMessages = [];
@@ -409,7 +467,6 @@ export function* batchedReceiveNewMessage(batchedPayloads) {
     if (!channel) {
       continue;
     }
-
     const mappedMessages = yield call(mapMessagesAndPreview, byChannelId[channelId], channelId);
     yield receiveBatchedMessages(channelId, mappedMessages);
 
@@ -440,6 +497,7 @@ function* receiveBatchedMessages(channelId, messages) {
 
 export function* replaceOptimisticMessage(currentMessages, message) {
   const messageIndex = currentMessages.findIndex((id) => id === message.optimisticId);
+
   if (messageIndex < 0) {
     return null;
   }
@@ -449,10 +507,15 @@ export function* replaceOptimisticMessage(currentMessages, message) {
     return null; // This shouldn't happen because we'd have bailed above, but just in case.
   }
 
+  if (optimisticMessage.parentMessage) {
+    message.parentMessageMedia = optimisticMessage.parentMessage.media;
+  }
+
   const messages = [...currentMessages];
   messages[messageIndex] = {
     ...optimisticMessage,
     ...message,
+    media: optimisticMessage.media,
     sendStatus: MessageSendStatus.SUCCESS,
   };
   return messages;
@@ -472,7 +535,12 @@ export function* getPreview(message) {
 
   const firstUrl = getFirstUrl(message);
   if (firstUrl) {
-    return yield call(getLinkPreviews, firstUrl);
+    const previewResult = yield call(getLinkPreviews, firstUrl);
+    if (previewResult.success) {
+      return previewResult.body;
+    } else {
+      return null;
+    }
   }
 }
 
@@ -495,26 +563,31 @@ export function isOwner(currentUser, entityUserMatrixId) {
 export function* sendBrowserNotification(eventData) {
   if (isOwner(yield select(currentUserSelector()), eventData.sender?.userId)) return;
 
+  const roomLabels = yield select(roomLabelSelector(eventData?.roomId));
+  if (roomLabels?.includes(DefaultRoomLabels.MUTE) || roomLabels?.includes(DefaultRoomLabels.ARCHIVED)) return;
+
   if (eventData.type === NotifiableEventType.RoomMessage) {
     yield call(sendBrowserMessage, mapMessage(eventData));
   }
 }
 
-export function* updateReadByUsers(messageId, receipts) {
-  const zeroUsersMap: { [id: string]: User } = yield select((state) => state.normalized.users || {});
+export function* mapMessageReadByUsers(messageId, channelId) {
+  const receipts = yield call(getMessageReadReceipts, channelId, messageId);
+  if (receipts) {
+    const zeroUsersMap: { [id: string]: User } = yield select((state) => state.normalized.users || {});
 
-  const selectedMessage = yield select(messageSelector(messageId));
-  const filteredReceipts = receipts.filter((receipt) => receipt.ts >= selectedMessage?.createdAt);
+    const selectedMessage = yield select(messageSelector(messageId));
+    const filteredReceipts = receipts.filter((receipt) => receipt.ts >= selectedMessage?.createdAt);
+    const currentUser = yield select(currentUserSelector());
 
-  const currentUser = yield select(currentUserSelector());
+    const readByUsers = filteredReceipts
+      .map((receipt) => {
+        return Object.values(zeroUsersMap).find((user) => user.matrixId === receipt.userId);
+      })
+      .filter((user) => user && user.userId !== currentUser.id);
 
-  const readByUsers = filteredReceipts
-    .map((receipt) => {
-      return Object.values(zeroUsersMap).find((user) => user.matrixId === receipt.userId);
-    })
-    .filter((user) => user && user.userId !== currentUser.id);
-
-  yield put(receiveMessage({ id: messageId, readBy: readByUsers }));
+    yield put(receiveMessage({ id: messageId, readBy: readByUsers }));
+  }
 }
 
 export function* saga() {
@@ -522,6 +595,8 @@ export function* saga() {
   yield takeLatest(SagaActionTypes.Send, send);
   yield takeLatest(SagaActionTypes.DeleteMessage, deleteMessage);
   yield takeLatest(SagaActionTypes.EditMessage, editMessage);
+  yield takeEvery(SagaActionTypes.LoadAttachmentDetails, loadAttachmentDetails);
+  yield takeEvery(SagaActionTypes.SendEmojiReaction, sendEmojiReaction);
 
   const chatBus = yield call(getChatBus);
   yield takeEveryFromBus(chatBus, ChatEvents.MessageReceived, receiveNewMessage);
@@ -529,6 +604,7 @@ export function* saga() {
   yield takeEveryFromBus(chatBus, ChatEvents.MessageDeleted, receiveDelete);
   yield takeEveryFromBus(chatBus, ChatEvents.LiveRoomEventReceived, receiveLiveRoomEventAction);
   yield takeEveryFromBus(chatBus, ChatEvents.ReadReceiptReceived, readReceiptReceived);
+  yield takeEveryFromBus(chatBus, ChatEvents.MessageEmojiReactionChange, onMessageEmojiReactionChange);
 }
 
 function* receiveLiveRoomEventAction({ payload }) {
@@ -536,20 +612,97 @@ function* receiveLiveRoomEventAction({ payload }) {
 }
 
 function* readReceiptReceived({ payload }) {
-  const { messageId, userId } = payload;
+  const { messageId, userId, roomId } = payload;
 
-  const zeroUsersMap: { [id: string]: User } = yield select((state) => state.normalized.users || {});
-  const currentUser = yield select(currentUserSelector);
+  if (yield select(_isActive(roomId))) {
+    const zeroUsersMap: { [id: string]: User } = yield select((state) => state.normalized.users || {});
+    const currentUser = yield select(currentUserSelector());
 
-  const readByUser = Object.values(zeroUsersMap).find((user) => user.matrixId === userId);
+    const readByUser = Object.values(zeroUsersMap).find((user) => user.matrixId === userId);
 
-  if (readByUser && readByUser.userId !== currentUser.id) {
-    const selectedMessage = yield select(messageSelector(messageId));
+    if (readByUser && readByUser.userId !== currentUser.id) {
+      const selectedMessage = yield select(messageSelector(messageId));
 
-    if (selectedMessage) {
-      const updatedReadBy = [...(selectedMessage.readBy || []), readByUser];
+      if (selectedMessage) {
+        const updatedReadBy = [...(selectedMessage.readBy || []), readByUser];
 
-      yield put(receiveMessage({ id: messageId, readBy: updatedReadBy }));
+        yield put(receiveMessage({ id: messageId, readBy: updatedReadBy }));
+      }
     }
+  }
+}
+
+const inProgress = {};
+export function* loadAttachmentDetails(action) {
+  const { media, messageId } = action.payload;
+
+  if (
+    inProgress[messageId] ||
+    (media.url && !media.url.startsWith('mxc://')) ||
+    media.downloadStatus === MediaDownloadStatus.Failed
+  ) {
+    return;
+  }
+
+  inProgress[messageId] = true;
+
+  try {
+    // Set status to 'LOADING'
+    yield put(updateMediaStatus(messageId, media, MediaDownloadStatus.Loading));
+
+    const blob = yield call(decryptFile, media.file || { url: media.url }, media.mimetype);
+    const url = URL.createObjectURL(blob);
+
+    if (!url) {
+      yield put(updateMediaStatus(messageId, media, MediaDownloadStatus.Failed));
+      return;
+    }
+
+    // Set status to 'SUCCESS' and update URL
+    yield put(updateMediaStatus(messageId, media, MediaDownloadStatus.Success, url));
+  } catch (error) {
+    console.error('Failed to download and decrypt image:', error);
+
+    // Set status to 'FAILED'
+    yield put(updateMediaStatus(messageId, media, MediaDownloadStatus.Failed));
+  } finally {
+    inProgress[messageId] = false;
+  }
+}
+
+function updateMediaStatus(messageId, media, downloadStatus, url = null) {
+  return receiveMessage({
+    id: messageId,
+    media: { ...media, downloadStatus, ...(url && { url }) },
+    image: url ? { ...media, url } : undefined,
+  });
+}
+
+export function* sendEmojiReaction(action) {
+  const { roomId, messageId, key } = action.payload;
+  try {
+    yield call(sendEmojiReactionEvent, roomId, messageId, key);
+  } catch (error) {
+    console.error('Error sending emoji reaction:', error);
+  }
+}
+
+export function* onMessageEmojiReactionChange(action) {
+  const { roomId, reaction } = action.payload;
+  yield call(updateMessageEmojiReaction, roomId, reaction);
+}
+
+export function* updateMessageEmojiReaction(roomId, { eventId, key }) {
+  const message = yield select(messageSelector(eventId));
+  const existingMessages = yield select(rawMessagesSelector(roomId));
+
+  if (message) {
+    const newReactions = { ...message.reactions };
+    newReactions[key] = (newReactions[key] || 0) + 1;
+
+    const updatedMessage = { ...message, reactions: newReactions };
+    const updatedMessages = existingMessages.map((message) => (message === eventId ? updatedMessage : message));
+
+    yield call(receiveChannel, { id: roomId, messages: updatedMessages });
   }
 }

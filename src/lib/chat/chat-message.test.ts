@@ -222,6 +222,77 @@ describe(adminMessageText, () => {
       expect(adminText).toEqual('Courtney was removed as moderator by admin');
     });
   });
+
+  describe(AdminMessageType.MEMBER_AVATAR_CHANGED, () => {
+    it('returns default message if admin user id not found', () => {
+      const state = getState('current-user', {});
+      const adminText = adminMessageText(
+        {
+          message: 'some message',
+          isAdmin: true,
+          admin: { type: AdminMessageType.MEMBER_AVATAR_CHANGED, userId: 'unknown-user-id' },
+        } as Message,
+        state
+      );
+
+      expect(adminText).toEqual('some message');
+    });
+
+    it('translates message if admin user id is found', () => {
+      const state = getState('current-user', { 'admin-user-id': { id: 'admin-user-id', firstName: 'Courtney' } });
+      const message = {
+        message: 'some message',
+        isAdmin: true,
+        admin: { type: AdminMessageType.MEMBER_AVATAR_CHANGED, userId: 'admin-user-id' },
+      } as Message;
+
+      const adminText = adminMessageText(message, state);
+
+      expect(adminText).toEqual('Admin: Courtney changed their avatar');
+    });
+  });
+
+  describe(AdminMessageType.REACTION, () => {
+    it('returns default message if admin user id not found', () => {
+      const state = getState('current-user', {});
+      const adminText = adminMessageText(
+        {
+          message: 'some message',
+          isAdmin: true,
+          admin: { type: AdminMessageType.REACTION, userId: 'unknown-user-id' },
+        } as Message,
+        state
+      );
+
+      expect(adminText).toEqual('some message');
+    });
+
+    it('translates message if admin user id is found', () => {
+      const state = getState('current-user', { 'admin-user-id': { id: 'admin-user-id', firstName: 'Courtney' } });
+      const message = {
+        message: 'some message',
+        isAdmin: true,
+        admin: { type: AdminMessageType.REACTION, userId: 'admin-user-id', amount: '10' },
+      } as any;
+
+      const adminText = adminMessageText(message, state);
+
+      expect(adminText).toEqual('Courtney reacted with 10 MEOW');
+    });
+
+    it('translates message if amount is not found', () => {
+      const state = getState('current-user', { 'admin-user-id': { id: 'admin-user-id', firstName: 'Courtney' } });
+      const message = {
+        message: 'some message',
+        isAdmin: true,
+        admin: { type: AdminMessageType.REACTION, userId: 'admin-user-id' },
+      } as any;
+
+      const adminText = adminMessageText(message, state);
+
+      expect(adminText).toEqual('Courtney sent a reaction');
+    });
+  });
 });
 
 describe(getMessagePreview, () => {
@@ -287,6 +358,60 @@ describe(getMessagePreview, () => {
     );
 
     expect(preview).toEqual('You: Failed to send');
+  });
+
+  it('returns post preview for isPost messages', function () {
+    const state = new StoreBuilder().withCurrentUser({ id: 'current-user' }).build();
+
+    const preview = getMessagePreview(
+      { message: '', isAdmin: false, isPost: true, sender: { userId: 'current-user' } } as Message,
+      state
+    );
+
+    expect(preview).toEqual('You: shared a new post');
+  });
+
+  it('returns post preview with sender firstName for non-current user', function () {
+    const state = new StoreBuilder().withCurrentUser({ id: 'current-user' }).build();
+
+    const preview = getMessagePreview(
+      { message: '', isAdmin: false, isPost: true, sender: { userId: 'another-user', firstName: 'Jack' } } as Message,
+      state
+    );
+
+    expect(preview).toEqual('Jack: shared a new post');
+  });
+
+  it('returns a system update message if message is null', function () {
+    const state = new StoreBuilder().withCurrentUser({ id: 'current-user' }).build();
+
+    const preview = getMessagePreview(null, state);
+
+    expect(preview).toEqual('Admin: System update or change occurred');
+  });
+
+  it('does not add prefix for one-on-one conversations', function () {
+    const state = new StoreBuilder().withCurrentUser({ id: 'current-user' }).build();
+
+    const preview = getMessagePreview(
+      { message: 'some message', sender: { userId: 'another-user', firstName: 'Jack' } } as Message,
+      state,
+      true // isOneOnOne
+    );
+
+    expect(preview).toEqual('some message');
+  });
+
+  it('adds prefix for group conversations', function () {
+    const state = new StoreBuilder().withCurrentUser({ id: 'current-user' }).build();
+
+    const preview = getMessagePreview(
+      { message: 'some message', sender: { userId: 'another-user', firstName: 'Jack' } } as Message,
+      state,
+      false // isOneOnOne
+    );
+
+    expect(preview).toEqual('Jack: some message');
   });
 });
 

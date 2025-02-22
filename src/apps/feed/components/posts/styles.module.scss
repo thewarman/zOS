@@ -1,0 +1,10 @@
+.Posts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  > li {
+    border-inline: 1px solid rgba(52, 56, 60);
+    border-bottom: 1px solid rgba(52, 56, 60, 0.75);
+  }
+}

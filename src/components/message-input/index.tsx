@@ -99,11 +99,9 @@ export class MessageInput extends React.Component<Properties, State> {
   get mimeTypes() {
     return {
       'image/*': [],
-      // 'text/*': [],
-      // 'video/*': [],
-      // 'application/pdf': [],
-      // 'application/zip': [],
-      // 'application/msword': [],
+      'video/*': [],
+      'application/pdf': [],
+      'audio/*': [],
     };
   }
 
@@ -271,35 +269,36 @@ export class MessageInput extends React.Component<Properties, State> {
         <div {...cn('addon-row')}>
           {reply && (
             <ReplyCard
-              message={reply.message}
+              message={reply?.message}
               senderIsCurrentUser={this.props.replyIsCurrentUser}
               senderFirstName={reply?.sender?.firstName}
               senderLastName={reply?.sender?.lastName}
+              mediaUrl={reply?.media?.url}
+              mediaName={reply?.media?.name}
               onRemove={this.props.onRemoveReply}
+              mediaType={reply?.media?.type}
             />
           )}
         </div>
 
         <div {...cn('input-row')}>
           {this.allowLeftIcons && (
-            <div {...cn('icon-outer')}>
-              <div {...cn('icon-wrapper')}>
-                {this.allowGiphy && (
-                  <IconButton {...cn('icon', 'giphy')} onClick={this.openGiphy} Icon={IconStickerCircle} size='small' />
-                )}
+            <div {...cn('icon-wrapper')}>
+              {this.allowGiphy && (
+                <IconButton {...cn('icon', 'giphy')} onClick={this.openGiphy} Icon={IconStickerCircle} size={26} />
+              )}
 
-                {this.allowFileAttachment && (
-                  <Menu
-                    onSelected={this.mediaSelected}
-                    mimeTypes={this.mimeTypes}
-                    maxSize={config.cloudinary.max_file_size}
-                  />
-                )}
-              </div>
+              {this.allowFileAttachment && (
+                <Menu
+                  onSelected={this.mediaSelected}
+                  mimeTypes={this.mimeTypes}
+                  maxSize={config.cloudinary.max_file_size}
+                />
+              )}
             </div>
           )}
 
-          <div {...cn('chat-container')}>
+          <div {...cn('chat-container', this.props.isEditing && 'editing')}>
             <div {...cn('scroll-container')}>
               <div {...cn('text-and-emoji-wrapper')}>
                 <Dropzone
@@ -345,12 +344,7 @@ export class MessageInput extends React.Component<Properties, State> {
                 <div {...cn('emoji-icon-outer')}>
                   <div {...cn('icon-wrapper')}>
                     {!this.props.isEditing && (
-                      <IconButton
-                        {...cn('icon', 'emoji')}
-                        onClick={this.openEmojis}
-                        Icon={IconFaceSmile}
-                        size='small'
-                      />
+                      <IconButton {...cn('icon', 'emoji')} onClick={this.openEmojis} Icon={IconFaceSmile} size={26} />
                     )}
                   </div>
                 </div>
@@ -359,19 +353,19 @@ export class MessageInput extends React.Component<Properties, State> {
           </div>
 
           {!this.props.isEditing && (
-            <div {...cn('icon-outer')}>
-              <div {...cn('icon-wrapper')}>
-                <Tooltip content={this.sendDisabledTooltipContent} open={this.state.isSendTooltipOpen}>
-                  <IconButton
-                    {...cn('icon', 'end-action')}
-                    onClick={this.onSend}
-                    Icon={IconSend3}
-                    size='small'
-                    isFilled={this.sendHighlighted()}
-                    label='send'
-                  />
-                </Tooltip>
-              </div>
+            <div {...cn('icon-wrapper')}>
+              {/* See: ZOS-115
+               * @ts-ignore */}
+              <Tooltip content={this.sendDisabledTooltipContent} open={this.state.isSendTooltipOpen}>
+                <IconButton
+                  {...cn('icon', 'end-action')}
+                  onClick={this.onSend}
+                  Icon={IconSend3}
+                  size={26}
+                  isFilled={this.sendHighlighted()}
+                  label='send'
+                />
+              </Tooltip>
             </div>
           )}
         </div>

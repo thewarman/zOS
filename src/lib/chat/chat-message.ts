@@ -22,24 +22,35 @@ export function previewDisplayDate(timestamp: number, currentDate = moment()) {
   return messageDate.format('MMM D, YYYY');
 }
 
-export function getMessagePreview(message: Message, state: RootState) {
+export function getMessagePreview(message: Message, state: RootState, isOneOnOne: boolean = false) {
   if (!message) {
-    return '';
+    return 'Admin: System update or change occurred';
   }
 
   if (message.sendStatus === MessageSendStatus.FAILED) {
-    return 'You: Failed to send';
+    return isOneOnOne ? 'Failed to send' : 'You: Failed to send';
   }
 
   if (message.isAdmin) {
     return adminMessageText(message, state);
   }
 
-  let prefix = previewPrefix(message.sender, state);
-  return `${prefix}: ${message.message || getMediaPreview(message)}`;
+  if (message.isPost) {
+    let prefix = previewPrefix(message.sender, state, isOneOnOne);
+    return prefix ? `${prefix}: shared a new post` : 'shared a new post';
+  }
+
+  let prefix = previewPrefix(message.sender, state, isOneOnOne);
+  return prefix
+    ? `${prefix}: ${message.message || getMediaPreview(message)}`
+    : `${message.message || getMediaPreview(message)}`;
 }
 
-function previewPrefix(sender: Message['sender'], state: RootState) {
+function previewPrefix(sender: Message['sender'], state: RootState, isOneOnOne: boolean) {
+  if (isOneOnOne) {
+    return '';
+  }
+
   const user = currentUserSelector()(state);
   return sender.userId === user.id ? 'You' : sender.firstName;
 }
@@ -80,10 +91,32 @@ export function adminMessageText(message: Message, state: RootState) {
       return translateMemberSetAsModerator(message.admin, state) ?? text;
     case AdminMessageType.MEMBER_REMOVED_AS_MODERATOR:
       return translateMemberRemovedAsModerator(message.admin, state) ?? text;
+    case AdminMessageType.REACTION:
+      return translateReaction(message.admin, user, state) ?? text;
+    case AdminMessageType.MEMBER_AVATAR_CHANGED:
+      return translateMemberAvatarChanged(message.admin, user, state) ?? text;
 
     default:
       return text;
   }
+}
+
+function translateReaction(admin: { userId?: string; amount?: string }, currentUser, state: RootState) {
+  const user = denormalizeUser(admin.userId, state);
+
+  if (!admin.amount && admin.userId === currentUser.id) {
+    return 'You sent a reaction';
+  }
+
+  if (!admin.amount && user?.firstName) {
+    return `${user.firstName} sent a reaction`;
+  }
+
+  if (admin.amount && admin.userId === currentUser.id) {
+    return `You reacted with ${admin.amount} MEOW`;
+  }
+
+  return admin.amount && user?.firstName ? `${user.firstName} reacted with ${admin.amount} MEOW` : null;
 }
 
 function translateJoinedZero(admin: { inviteeId?: string; inviterId?: string }, currentUser, state: RootState) {
@@ -124,4 +157,13 @@ function translateMemberSetAsModerator(admin: { userId?: string }, state: RootSt
 function translateMemberRemovedAsModerator(admin: { userId?: string }, state: RootState) {
   const user = denormalizeUser(admin.userId, state);
   return user?.firstName ? `${user.firstName} was removed as moderator by admin` : null;
+}
+
+function translateMemberAvatarChanged(admin: { userId?: string }, currentUser, state: RootState) {
+  if (admin.userId === currentUser.id) {
+    return 'Admin: You changed your avatar';
+  }
+
+  const user = denormalizeUser(admin.userId, state);
+  return user?.firstName ? `Admin: ${user.firstName} changed their avatar` : null;
 }

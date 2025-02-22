@@ -2,8 +2,9 @@ import React from 'react';
 import { shallow } from 'enzyme';
 
 import { ConversationListPanel, Properties } from '.';
-import { Channel } from '../../../../store/channels';
+import { Channel, DefaultRoomLabels } from '../../../../store/channels';
 import { stubConversation } from '../../../../store/test/store';
+import { IconStar1 } from '@zero-tech/zui/icons';
 
 describe('ConversationListPanel', () => {
   const subject = (props: Partial<Properties>) => {
@@ -11,11 +12,13 @@ describe('ConversationListPanel', () => {
       conversations: [],
       myUserId: '',
       activeConversationId: '',
+      isLabelDataLoaded: true,
       search: () => undefined,
       onConversationClick: () => null,
       onCreateConversation: () => null,
-      onFavoriteRoom: () => null,
-      onUnfavoriteRoom: () => null,
+      onAddLabel: () => null,
+      onRemoveLabel: () => null,
+      isCollapsed: false,
       ...props,
     };
 
@@ -30,6 +33,7 @@ describe('ConversationListPanel', () => {
         {
           id: 'test-conversation-id',
           otherMembers: [],
+          unreadCount: { total: 0, highlight: 0 },
         } as any,
       ],
     });
@@ -41,9 +45,24 @@ describe('ConversationListPanel', () => {
 
   it('renders filtered conversation list', function () {
     const conversations = [
-      { id: 'convo-id-1', name: 'convo-1', otherMembers: [{ firstName: 'jack', primaryZID: '0://world.jack' }] },
-      { id: 'convo-id-2', name: 'convo-2', otherMembers: [{ firstName: 'bob', primaryZID: 'world.bob' }] },
-      { id: 'convo-id-3', name: 'convo-3', otherMembers: [{ firstName: 'jacklyn' }] },
+      {
+        id: 'convo-id-1',
+        name: 'convo-1',
+        otherMembers: [{ firstName: 'jack', primaryZID: '0://world.jack' }],
+        unreadCount: { total: 0, highlight: 0 },
+      },
+      {
+        id: 'convo-id-2',
+        name: 'convo-2',
+        otherMembers: [{ firstName: 'bob', primaryZID: 'world.bob' }],
+        unreadCount: { total: 0, highlight: 0 },
+      },
+      {
+        id: 'convo-id-3',
+        name: 'convo-3',
+        otherMembers: [{ firstName: 'jacklyn' }],
+        unreadCount: { total: 0, highlight: 0 },
+      },
     ];
 
     const wrapper = subject({ conversations: conversations as any });
@@ -66,59 +85,231 @@ describe('ConversationListPanel', () => {
 
   it('renders conversations based on selected tab', function () {
     const conversations = [
-      stubConversation({ name: 'convo-1' }),
-      stubConversation({ name: 'convo-2', isFavorite: true }),
-      stubConversation({ name: 'convo-3', isFavorite: true }),
+      stubConversation({ name: 'convo-1', unreadCount: { total: 0, highlight: 0 } }),
+      stubConversation({ name: 'convo-2', labels: [DefaultRoomLabels.WORK], unreadCount: { total: 0, highlight: 0 } }),
+      stubConversation({ name: 'convo-3', labels: [DefaultRoomLabels.WORK], unreadCount: { total: 0, highlight: 0 } }),
+      stubConversation({
+        name: 'convo-4',
+        labels: [DefaultRoomLabels.FAMILY],
+        unreadCount: { total: 0, highlight: 0 },
+      }),
     ];
     const wrapper = subject({ conversations: conversations as any });
 
-    selectTab(wrapper, 'Favorites');
+    selectTab(wrapper, 'Work');
     expect(renderedConversationNames(wrapper)).toStrictEqual(['convo-2', 'convo-3']);
 
     selectTab(wrapper, 'All');
-    expect(renderedConversationNames(wrapper)).toStrictEqual(['convo-1', 'convo-2', 'convo-3']);
+    expect(renderedConversationNames(wrapper)).toStrictEqual([
+      'convo-1',
+      'convo-2',
+      'convo-3',
+      'convo-4',
+    ]);
+
+    selectTab(wrapper, 'Family');
+    expect(renderedConversationNames(wrapper)).toStrictEqual(['convo-4']);
   });
 
-  it('renders default state when favorites is empty', function () {
-    const conversations = [stubConversation({ name: 'convo-1' })];
+  it('renders Favorites tab first', function () {
+    const conversations = [
+      stubConversation({
+        name: 'convo-1',
+        labels: [DefaultRoomLabels.FAVORITE],
+        unreadCount: { total: 0, highlight: 0 },
+      }),
+      stubConversation({ name: 'convo-2', unreadCount: { total: 0, highlight: 0 } }),
+    ];
     const wrapper = subject({ conversations: conversations as any });
 
-    selectTab(wrapper, 'Favorites');
+    const tabs = wrapper.find('.messages-list__tab');
+    expect(tabs.at(0)).toHaveElement(IconStar1);
+    expect(tabs.at(1)).toHaveText('All');
+  });
 
-    expect(wrapper).toHaveElement('.messages-list__favorites-preview');
+  it('sets selectedTab to Favorites if there are favorite and non-archived conversations', function () {
+    const conversations = [
+      stubConversation({
+        name: 'convo-1',
+        labels: [DefaultRoomLabels.FAVORITE],
+        unreadCount: { total: 0, highlight: 0 },
+      }),
+      stubConversation({
+        name: 'convo-2',
+        labels: [DefaultRoomLabels.FAVORITE, DefaultRoomLabels.ARCHIVED],
+        unreadCount: { total: 0, highlight: 0 },
+      }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    expect(wrapper.state('selectedTab')).toEqual('favorites');
+  });
+
+  it('sets selectedTab to All if there are no favorite and non-archived conversations', function () {
+    const conversations = [
+      stubConversation({ name: 'convo-1', unreadCount: { total: 0, highlight: 0 } }),
+      stubConversation({
+        name: 'convo-2',
+        labels: [DefaultRoomLabels.ARCHIVED],
+        unreadCount: { total: 0, highlight: 0 },
+      }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    expect(wrapper.state('selectedTab')).toEqual('all');
+  });
+
+  it('renders default state when label list is empty', function () {
+    const conversations = [stubConversation({ name: 'convo-1', unreadCount: { total: 0, highlight: 0 } })];
+    const wrapper = subject({ conversations: conversations as any });
+
+    selectTab(wrapper, 'Work');
+
+    expect(wrapper).toHaveElement('.messages-list__label-preview');
+  });
+
+  it('does not render default state when label list is empty', function () {
+    const conversations = [
+      stubConversation({
+        name: 'convo-1',
+        labels: [DefaultRoomLabels.FAVORITE],
+        unreadCount: { total: 0, highlight: 0 },
+      }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    selectTab(wrapper, 'All');
+
+    expect(wrapper).not.toHaveElement('.messages-list__label-preview');
   });
 
   it('renders tab unread counts', function () {
     const conversations = [
-      stubConversation({ name: 'convo-1', unreadCount: 3 }),
-      stubConversation({ name: 'convo-2', unreadCount: 11, isFavorite: true }),
-      stubConversation({ name: 'convo-3', unreadCount: 17, isFavorite: true }),
-      stubConversation({ name: 'convo-4', unreadCount: 7 }),
+      stubConversation({ name: 'convo-1', unreadCount: { total: 3, highlight: 0 } }),
+      stubConversation({
+        name: 'convo-2',
+        unreadCount: { total: 11, highlight: 0 },
+        labels: [DefaultRoomLabels.FAMILY],
+      }),
+      stubConversation({
+        name: 'convo-3',
+        unreadCount: { total: 17, highlight: 0 },
+        labels: [DefaultRoomLabels.FAMILY],
+      }),
+      stubConversation({ name: 'convo-4', unreadCount: { total: 7, highlight: 0 } }),
+      stubConversation({ name: 'convo-5', unreadCount: { total: 13, highlight: 0 }, labels: [DefaultRoomLabels.WORK] }),
     ];
     const wrapper = subject({ conversations: conversations as any });
 
     const allTab = tabNamed(wrapper, 'All');
-    expect(allTab.find('.messages-list__tab-badge')).toHaveText('38');
+    expect(allTab.find('.messages-list__tab-badge')).toHaveText('51');
 
-    const favoritesTab = tabNamed(wrapper, 'Favorites');
+    const favoritesTab = tabNamed(wrapper, 'Family');
     expect(favoritesTab.find('.messages-list__tab-badge')).toHaveText('28');
+
+    const workTab = tabNamed(wrapper, 'Work');
+    expect(workTab.find('.messages-list__tab-badge')).toHaveText('13');
   });
 
   it('does not render unread count if count is zero', function () {
     const conversations = [
-      stubConversation({ name: 'convo-1', unreadCount: 0 }),
-      stubConversation({ name: 'convo-2', unreadCount: 0, isFavorite: true }),
+      stubConversation({ name: 'convo-1', unreadCount: { total: 0, highlight: 0 } }),
+      stubConversation({ name: 'convo-2', unreadCount: { total: 0, highlight: 0 }, labels: [DefaultRoomLabels.WORK] }),
     ];
     const wrapper = subject({ conversations: conversations as any });
 
     expect(tabNamed(wrapper, 'All')).not.toHaveElement('.messages-list__tab-badge');
-    expect(tabNamed(wrapper, 'Favorites')).not.toHaveElement('.messages-list__tab-badge');
+    expect(tabNamed(wrapper, 'Work')).not.toHaveElement('.messages-list__tab-badge');
+  });
+
+  it('does not render unread count if count if conversation is archived', function () {
+    const conversations = [
+      stubConversation({ name: 'convo-1', unreadCount: { total: 3, highlight: 0 } }),
+      stubConversation({
+        name: 'convo-2',
+        unreadCount: { total: 5, highlight: 0 },
+        labels: [DefaultRoomLabels.ARCHIVED, DefaultRoomLabels.WORK],
+      }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    const workTab = tabNamed(wrapper, 'Work');
+    expect(workTab).not.toHaveElement('.messages-list__tab-badge');
+
+    const allTab = tabNamed(wrapper, 'All');
+    expect(allTab.find('.messages-list__tab-badge')).toHaveText('3');
+  });
+
+  it('does not render unread count for archived label', function () {
+    const conversations = [
+      stubConversation({
+        name: 'convo-2',
+        unreadCount: { total: 5, highlight: 0 },
+        labels: [DefaultRoomLabels.ARCHIVED],
+      }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    const archivedTab = tabNamed(wrapper, 'Archived');
+    expect(archivedTab).not.toHaveElement('.messages-list__tab-badge');
+  });
+
+  it('does not include archived conversations in All unread count total', function () {
+    const conversations = [
+      stubConversation({ name: 'convo-1', unreadCount: { total: 3, highlight: 0 } }),
+      stubConversation({
+        name: 'convo-2',
+        unreadCount: { total: 5, highlight: 0 },
+        labels: [DefaultRoomLabels.ARCHIVED],
+      }),
+      stubConversation({ name: 'convo-3', unreadCount: { total: 2, highlight: 0 }, labels: [DefaultRoomLabels.WORK] }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    const allTab = tabNamed(wrapper, 'All');
+    expect(allTab.find('.messages-list__tab-badge')).toHaveText('5');
+
+    const workTab = tabNamed(wrapper, 'Work');
+    expect(workTab.find('.messages-list__tab-badge')).toHaveText('2');
+  });
+
+  it('renders conversations in the archived tab', function () {
+    const conversations = [
+      stubConversation({
+        name: 'convo-1',
+        labels: [DefaultRoomLabels.ARCHIVED],
+        unreadCount: { total: 0, highlight: 0 },
+      }),
+      stubConversation({ name: 'convo-2', unreadCount: { total: 0, highlight: 0 } }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    selectTab(wrapper, 'Archived');
+    expect(renderedConversationNames(wrapper)).toStrictEqual(['convo-1']);
+  });
+
+  it('does not render archived conversations in other tabs', function () {
+    const conversations = [
+      stubConversation({
+        name: 'convo-1',
+        labels: [DefaultRoomLabels.ARCHIVED, DefaultRoomLabels.WORK],
+        unreadCount: { total: 0, highlight: 0 },
+      }),
+      stubConversation({ name: 'convo-2', labels: [DefaultRoomLabels.WORK], unreadCount: { total: 0, highlight: 0 } }),
+    ];
+    const wrapper = subject({ conversations: conversations as any });
+
+    selectTab(wrapper, 'All');
+    expect(renderedConversationNames(wrapper)).toStrictEqual(['convo-2']);
+
+    selectTab(wrapper, 'Work');
+    expect(renderedConversationNames(wrapper)).toStrictEqual(['convo-2']);
   });
 
   it('renders conversation group names as well in the filtered conversation list', function () {
     const conversations = [
-      { id: 'convo-id-1', name: '', otherMembers: [{ firstName: 'test' }] },
-      { id: 'convo-id-2', name: '', otherMembers: [{ firstName: 'bob' }] },
+      { id: 'convo-id-1', name: '', otherMembers: [{ firstName: 'test' }], unreadCount: { total: 0, highlight: 0 } },
+      { id: 'convo-id-2', name: '', otherMembers: [{ firstName: 'bob' }], unreadCount: { total: 0, highlight: 0 } },
       {
         id: 'convo-id-3',
         name: 'Test Group',
@@ -126,6 +317,7 @@ describe('ConversationListPanel', () => {
           { firstName: 'name-1' },
           { firstName: 'name-2' },
         ],
+        unreadCount: { total: 0, highlight: 0 },
       },
       {
         id: 'convo-id-4',
@@ -134,6 +326,7 @@ describe('ConversationListPanel', () => {
           { firstName: 'name-1' },
           { firstName: 'name-2' },
         ],
+        unreadCount: { total: 0, highlight: 0 },
       },
     ];
 
@@ -170,16 +363,19 @@ describe('ConversationListPanel', () => {
         id: 'convo-id-1',
         name: 'convo-1',
         otherMembers: [{ firstName: 'jack', primaryZID: '0://world.iamjack' }],
+        unreadCount: { total: 0, highlight: 0 },
       },
       {
         id: 'convo-id-2',
         name: 'convo-2',
         otherMembers: [{ firstName: 'bob', primaryZID: '0://world.bob' }],
+        unreadCount: { total: 0, highlight: 0 },
       },
       {
         id: 'convo-id-3',
         name: 'convo-3',
         otherMembers: [{ firstName: 'jacklyn', primaryZID: '0://world.jacklyn' }],
+        unreadCount: { total: 0, highlight: 0 },
       },
       {
         id: 'convo-id-4',
@@ -188,6 +384,7 @@ describe('ConversationListPanel', () => {
           { firstName: 'user1', primaryZID: '0://world.user1' },
           { firstName: 'user2' },
         ],
+        unreadCount: { total: 0, highlight: 0 },
       },
       {
         id: 'convo-id-5',
@@ -196,6 +393,7 @@ describe('ConversationListPanel', () => {
           { firstName: 'user1', primaryZID: '0://world.user1' },
           { firstName: 'user2', primaryZID: '0://world.user2' },
         ],
+        unreadCount: { total: 0, highlight: 0 },
       },
     ];
 
@@ -255,12 +453,33 @@ describe('ConversationListPanel', () => {
         'convo-4',
       ]);
     });
+
+    it('filters archived conversations', () => {
+      const archivedConversations = [
+        stubConversation({ name: 'convo-1', unreadCount: { total: 0, highlight: 0 } }),
+        stubConversation({
+          name: 'convo-2',
+          labels: [DefaultRoomLabels.ARCHIVED],
+          unreadCount: { total: 0, highlight: 0 },
+        }),
+        stubConversation({
+          name: 'convo-3',
+          labels: [DefaultRoomLabels.ARCHIVED],
+          unreadCount: { total: 0, highlight: 0 },
+        }),
+      ];
+      const wrapper = subject({ conversations: archivedConversations as any });
+
+      wrapper.find('Input').simulate('change', 'convo');
+      const displayChatNames = renderedConversations(wrapper).map((c) => c.name);
+      expect(displayChatNames).toStrictEqual(['convo-1']);
+    });
   });
 
   it('selecting an existing conversation announces click event', async function () {
     const onConversationClick = jest.fn();
     const conversations = [
-      { id: 'convo-id-2', name: '', otherMembers: [{ firstName: 'bob' }] },
+      { id: 'convo-id-2', name: '', otherMembers: [{ firstName: 'bob' }], unreadCount: { total: 0, highlight: 0 } },
     ] as any;
     const wrapper = subject({ conversations, onConversationClick });
 
@@ -274,8 +493,8 @@ describe('ConversationListPanel', () => {
   it('selecting an existing conversation clears the filtered state', async function () {
     const onConversationClick = jest.fn();
     const conversations = [
-      { id: 'convo-id-2', name: '', otherMembers: [{ firstName: 'bob' }] },
-      { id: 'convo-id-2', name: '', otherMembers: [{ firstName: 'jack' }] },
+      { id: 'convo-id-2', name: '', otherMembers: [{ firstName: 'bob' }], unreadCount: { total: 0, highlight: 0 } },
+      { id: 'convo-id-2', name: '', otherMembers: [{ firstName: 'jack' }], unreadCount: { total: 0, highlight: 0 } },
     ] as any;
     const wrapper = subject({ conversations, onConversationClick });
 

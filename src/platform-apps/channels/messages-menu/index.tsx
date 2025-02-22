@@ -2,7 +2,16 @@ import React, { createRef } from 'react';
 import { createPortal } from 'react-dom';
 
 import { DropdownMenu } from '@zero-tech/zui/components';
-import { IconDotsHorizontal, IconEdit5, IconFlipBackward, IconTrash4 } from '@zero-tech/zui/icons';
+import {
+  IconAlertCircle,
+  IconDotsHorizontal,
+  IconEdit5,
+  IconFlipBackward,
+  IconInfoCircle,
+  IconTrash4,
+  IconDownload2,
+  IconCopy2,
+} from '@zero-tech/zui/icons';
 
 import classNames from 'classnames';
 import './styles.scss';
@@ -12,7 +21,10 @@ export interface Properties {
   canEdit: boolean;
   canDelete: boolean;
   canReply?: boolean;
-  isMediaMessage?: boolean;
+  canReportUser?: boolean;
+  canViewInfo?: boolean;
+  canDownload?: boolean;
+  canCopy?: boolean;
   isMenuOpen?: boolean;
   isMenuFlying?: boolean;
 
@@ -21,6 +33,10 @@ export interface Properties {
   onDelete?: () => void;
   onEdit?: () => void;
   onReply?: () => void;
+  onInfo?: () => void;
+  onDownload?: () => void;
+  onCopy?: () => void;
+  onReportUser?: () => void;
 }
 
 export class MessageMenu extends React.Component<Properties> {
@@ -41,20 +57,46 @@ export class MessageMenu extends React.Component<Properties> {
   onEdit = () => this.delayEvent(this.props.onEdit);
   onReply = () => this.delayEvent(this.props.onReply);
 
+  onInfo = () => {
+    this.props.onInfo();
+  };
+
   renderItems = () => {
     const menuItems = [];
-    if (this.props.onEdit && this.props.canEdit && !this.props.isMediaMessage) {
+
+    if (this.props.onEdit && this.props.canEdit) {
       menuItems.push({
         id: 'edit',
         label: this.renderMenuOption(<IconEdit5 size={20} />, 'Edit'),
         onSelect: this.onEdit,
       });
     }
-    if (this.props.onReply && this.props.canReply && !this.props.isMediaMessage) {
+    if (this.props.onReply && this.props.canReply) {
       menuItems.push({
         id: 'reply',
         label: this.renderMenuOption(<IconFlipBackward size={20} />, 'Reply'),
         onSelect: this.onReply,
+      });
+    }
+    if (this.props.onInfo && this.props.canViewInfo) {
+      menuItems.push({
+        id: 'info',
+        label: this.renderMenuOption(<IconInfoCircle size={20} />, 'Info'),
+        onSelect: this.onInfo,
+      });
+    }
+    if (this.props.onDownload && this.props.canDownload) {
+      menuItems.push({
+        id: 'download',
+        label: this.renderMenuOption(<IconDownload2 size={20} />, 'Download'),
+        onSelect: this.props.onDownload,
+      });
+    }
+    if (this.props.onCopy && this.props.canCopy) {
+      menuItems.push({
+        id: 'copy',
+        label: this.renderMenuOption(<IconCopy2 size={20} />, 'Copy'),
+        onSelect: this.props.onCopy,
       });
     }
     if (this.props.onDelete && this.props.canDelete) {
@@ -62,6 +104,13 @@ export class MessageMenu extends React.Component<Properties> {
         id: 'delete',
         label: this.renderMenuOption(<IconTrash4 size={20} />, 'Delete'),
         onSelect: this.props.onDelete,
+      });
+    }
+    if (this.props.onReportUser && this.props.canReportUser) {
+      menuItems.push({
+        id: 'reportUser',
+        label: this.renderMenuOption(<IconAlertCircle color='red' size={20} />, 'Report'),
+        onSelect: this.props.onReportUser,
       });
     }
 

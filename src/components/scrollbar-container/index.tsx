@@ -3,9 +3,11 @@ import * as React from 'react';
 import './styles.scss';
 
 export interface Properties {
+  className?: string;
   children: React.ReactNode;
   variant?: 'on-hover' | 'fixed';
   hasPanel?: boolean;
+  isScrollbarHidden?: boolean;
 }
 
 interface State {
@@ -71,12 +73,17 @@ export class ScrollbarContainer extends React.Component<Properties, State> {
   }
 
   render() {
-    const { children, variant = 'fixed', hasPanel } = this.props;
+    const { children, variant = 'fixed', hasPanel, className } = this.props;
     const { showPanel } = this.state;
 
     return (
-      <div className='scrollbar-container'>
-        <div className='scrollbar-container__content' data-variant={variant} ref={this.scrollContainerRef}>
+      <div className={`scrollbar-container ${className}`}>
+        <div
+          className='scrollbar-container__content'
+          data-variant={variant}
+          ref={this.scrollContainerRef}
+          data-is-scrollbar-hidden={this.props.isScrollbarHidden}
+        >
           {children}
         </div>
         {variant === 'on-hover' && showPanel && hasPanel && <div className='scrollbar-container__panel'></div>}

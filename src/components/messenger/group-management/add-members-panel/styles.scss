@@ -21,8 +21,6 @@ $side-padding: 16px;
   &__selected-tags {
     flex-grow: 99;
     overflow-y: auto;
-    // Forcing a height here allows the flex-grow to fill the size without growing too big
-    height: 1px;
   }
 
   &__search {
@@ -34,7 +32,7 @@ $side-padding: 16px;
   &__submit-button-container {
     display: flex;
     justify-content: center;
-    margin: 16px 16px 0;
+    margin: 16px;
   }
 
   &__submit-button {

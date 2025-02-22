@@ -2,7 +2,7 @@ import { CallEffect, call } from 'redux-saga/effects';
 
 import { FileType, getFileType } from './utils';
 import { Message } from '.';
-import { chat, uploadImageUrl } from '../../lib/chat';
+import { uploadFileMessage, uploadImageUrl } from '../../lib/chat';
 
 export const createUploadableFile = (file): Uploadable => {
   if (file.nativeFile && getFileType(file.nativeFile) === FileType.Media) {
@@ -17,25 +17,21 @@ export const createUploadableFile = (file): Uploadable => {
 export interface Uploadable {
   file: any;
   optimisticMessage: Message;
-  upload: (channelId, rootMessageId) => Generator<CallEffect<Message | unknown>>;
+  upload: (channelId, rootMessageId, isPost?) => Generator<CallEffect<Message | unknown>>;
 }
 
 export class UploadableMedia implements Uploadable {
   public optimisticMessage: Message;
 
   constructor(public file) {}
-  *upload(channelId, rootMessageId) {
-    const chatClient = yield call(chat.get);
-
+  *upload(channelId, rootMessageId, isPost = false) {
     return yield call(
-      [
-        chatClient,
-        chatClient.uploadFileMessage,
-      ],
+      uploadFileMessage,
       channelId,
       this.file.nativeFile,
       rootMessageId,
-      this.optimisticMessage?.id?.toString()
+      this.optimisticMessage?.id?.toString(),
+      isPost
     );
   }
 }
@@ -62,9 +58,17 @@ export class UploadableGiphy implements Uploadable {
 
 export class UploadableAttachment implements Uploadable {
   public optimisticMessage: Message;
+
   constructor(public file) {}
-  *upload(_channelId, _rootMessageId) {
-    yield;
-    throw new Error('Attachment upload is not supported yet.');
+
+  *upload(channelId, rootMessageId, isPost = false) {
+    return yield call(
+      uploadFileMessage,
+      channelId,
+      this.file.nativeFile,
+      rootMessageId,
+      this.optimisticMessage?.id?.toString(),
+      isPost
+    );
   }
 }

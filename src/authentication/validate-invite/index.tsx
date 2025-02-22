@@ -14,8 +14,7 @@ export interface Properties {
   validateInvite: (data: { code: string }) => void;
 }
 
-// allow upto 14 chars (number/string)
-const MAX_INVITE_CODE_LENGTH = 14;
+const MAX_INVITE_CODE_LENGTH = 6;
 
 interface State {
   inviteCode: string;
@@ -31,7 +30,7 @@ export class Invite extends React.Component<Properties, State> {
   };
 
   onInviteCodeChanged = (code: string) => {
-    this.setState({ inviteCode: code });
+    this.setState({ inviteCode: code.trim() });
   };
 
   submitForm = async (e) => {
@@ -84,6 +83,7 @@ export class Invite extends React.Component<Properties, State> {
               type='text'
               error={isError}
               autoFocus
+              maxLength={MAX_INVITE_CODE_LENGTH}
             />
 
             {isError && this.renderAlert(this.props.inviteCodeStatus)}

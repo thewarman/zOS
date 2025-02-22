@@ -2,28 +2,28 @@ import { EditMessageOptions, Message, MessagesResponse } from '../../store/messa
 import { Channel, User as UserModel } from '../../store/channels/index';
 import { MatrixClient } from './matrix-client';
 import { FileUploadResult } from '../../store/messages/saga';
-import { ParentMessage, User } from './types';
+import { MatrixProfileInfo, ParentMessage, User } from './types';
 import { MemberNetworks } from '../../store/users/types';
-import { ReadReceiptPreferenceType } from './matrix/types';
 
 export interface RealtimeChatEvents {
   receiveNewMessage: (channelId: string, message: Message) => void;
   receiveDeleteMessage: (roomId: string, messageId: string) => void;
   onMessageUpdated: (channelId: string, message: Message) => void;
-  receiveUnreadCount: (channelId: string, unreadCount: number) => void;
+  receiveUnreadCount: (channelId: string, unreadCount: { total: number; highlight: number }) => void;
   onUserJoinedChannel: (conversation) => void;
   onUserLeft: (channelId: string, userId: string) => void;
-  onUserPresenceChanged: (matrixId: string, isOnline: boolean, lastSeenAt: string) => void;
   onRoomNameChanged: (channelId: string, name: string) => void;
   onRoomAvatarChanged: (roomId: string, url: string) => void;
+  onRoomGroupTypeChanged: (roomId: string, groupType: string) => void;
   onOtherUserJoinedChannel: (channelId: string, user: UserModel) => void;
   onOtherUserLeftChannel: (channelId: string, user: UserModel) => void;
   receiveLiveRoomEvent: (eventData) => void;
-  roomFavorited: (roomId: string) => void;
-  roomUnfavorited: (roomId: string) => void;
   roomMemberTyping: (roomId: string, userIds: string[]) => void;
   roomMemberPowerLevelChanged: (roomId: string, matrixId: string, powerLevel: number) => void;
-  readReceiptReceived: (messageId: string, userId: string) => void;
+  readReceiptReceived: (messageId: string, userId: string, roomId: string) => void;
+  roomLabelChange: (roomId: string, labels: string[]) => void;
+  postMessageReactionChange: (roomId: string, reaction: any) => void;
+  messageEmojiReactionChange: (roomId: string, reaction: any) => void;
 }
 
 export interface MatrixKeyBackupInfo {
@@ -41,9 +41,9 @@ export interface IChatClient {
   disconnect: () => void;
   reconnect: () => void;
   supportsOptimisticCreateConversation: () => boolean;
-  getUserPresence: (userId: string) => Promise<any>;
   getRoomNameById: (id: string) => Promise<string>;
   getRoomAvatarById: (id: string) => Promise<string>;
+  getRoomGroupTypeById: (id: string) => Promise<string>;
   getChannels: (id: string) => Promise<Partial<Channel>[]>;
   getConversations: () => Promise<Partial<Channel>[]>;
   searchMyNetworksByName: (filter: string) => Promise<MemberNetworks[] | any>;
@@ -64,12 +64,6 @@ export interface IChatClient {
     file?: FileUploadResult,
     optimisticId?: string
   ) => Promise<MessagesResponse>;
-  uploadFileMessage: (
-    channelId: string,
-    media: File,
-    rootMessageId?: string,
-    optimisticId?: string
-  ) => Promise<Message>;
   fetchConversationsWithUsers: (users: User[]) => Promise<Partial<Channel>[]>;
   deleteMessageByRoomId: (roomId: string, messageId: string) => Promise<void>;
   leaveRoom: (roomId: string, userId: string) => Promise<void>;
@@ -80,13 +74,23 @@ export interface IChatClient {
     mentionedUserIds: string[],
     data?: Partial<EditMessageOptions>
   ): Promise<any>;
-  userJoinedInviterOnZero: (channelId: string, inviterId: string, inviteeId: string) => Promise<any>;
   markRoomAsRead: (roomId: string, userId?: string) => Promise<void>;
   getSecureBackup: () => Promise<any>;
   generateSecureBackup: () => Promise<any>;
   saveSecureBackup: (MatrixKeyBackupInfo) => Promise<void>;
   restoreSecureBackup: (recoveryKey: string) => Promise<void>;
   getRoomIdForAlias: (alias: string) => Promise<string | undefined>;
+  uploadFile(file: File): Promise<string>;
+  downloadFile(fileUrl: string): Promise<any>;
+  batchDownloadFiles(
+    fileUrls: string[],
+    isThumbnail: boolean,
+    batchSize: number
+  ): Promise<{ [fileUrl: string]: string }>;
+  editProfile(profileInfo: MatrixProfileInfo): Promise<void>;
+  getAccessToken(): string | null;
+  mxcUrlToHttp(mxcUrl: string): string;
+  getProfileInfo(userId: string): Promise<{ avatar_url?: string; displayname?: string }>;
 }
 
 export class Chat {
@@ -106,16 +110,16 @@ export class Chat {
     return this.client.getChannels(id);
   }
 
-  async getUserPresence(userId: string) {
-    return this.client.getUserPresence(userId);
-  }
-
   async getRoomNameById(roomId: string) {
     return this.client.getRoomNameById(roomId);
   }
 
   async getRoomAvatarById(roomId: string) {
     return this.client.getRoomAvatarById(roomId);
+  }
+
+  async getRoomGroupTypeById(roomId: string) {
+    return this.client.getRoomGroupTypeById(roomId);
   }
 
   async getConversations() {
@@ -142,10 +146,6 @@ export class Chat {
     return this.client.deleteMessageByRoomId(roomId, messageId);
   }
 
-  async userJoinedInviterOnZero(channelId: string, inviterId: string, inviteeId: string) {
-    return this.client.userJoinedInviterOnZero(channelId, inviterId, inviteeId);
-  }
-
   async editMessage(
     roomId: string,
     messageId: string,
@@ -162,10 +162,6 @@ export class Chat {
 
   async searchMentionableUsersForChannel(channelId: string, search: string, channelMembers: UserModel[]) {
     return this.client.searchMentionableUsersForChannel(channelId, search, channelMembers);
-  }
-
-  uploadFileMessage(channelId: string, media: File, rootMessageId: string = '', optimisticId = '') {
-    return this.client.uploadFileMessage(channelId, media, rootMessageId, optimisticId);
   }
 
   async sendMessagesByChannelId(
@@ -297,14 +293,6 @@ export async function getSecureBackup() {
   return await chat.get().matrix.getSecureBackup();
 }
 
-export async function addRoomToFavorites(roomId: string) {
-  return await chat.get().matrix.addRoomToFavorites(roomId);
-}
-
-export async function removeRoomFromFavorites(roomId: string) {
-  return await chat.get().matrix.removeRoomFromFavorites(roomId);
-}
-
 export async function uploadImageUrl(
   channelId: string,
   url: string,
@@ -329,10 +317,114 @@ export async function removeUserAsModerator(roomId: string, userId: string) {
   return await chat.get().matrix.removeUserAsModerator(roomId, userId);
 }
 
-export async function setReadReceiptPreference(preference: ReadReceiptPreferenceType) {
+export async function setReadReceiptPreference(preference: string) {
   return await chat.get().matrix.setReadReceiptPreference(preference);
+}
+
+export async function getReadReceiptPreference() {
+  return await chat.get().matrix.getReadReceiptPreference();
 }
 
 export async function getMessageReadReceipts(roomId: string, messageId: string) {
   return await chat.get().matrix.getMessageReadReceipts(roomId, messageId);
+}
+
+export async function uploadFileMessage(
+  channelId: string,
+  media: File,
+  rootMessageId: string = '',
+  optimisticId = '',
+  isPost: boolean = false
+) {
+  return chat.get().matrix.uploadFileMessage(channelId, media, rootMessageId, optimisticId, isPost);
+}
+
+export async function addRoomToLabel(roomId: string, label: string) {
+  return await chat.get().matrix.addRoomToLabel(roomId, label);
+}
+
+export async function removeRoomFromLabel(roomId: string, label: string) {
+  return await chat.get().matrix.removeRoomFromLabel(roomId, label);
+}
+
+export async function getRoomTags(conversations: Partial<Channel>[]) {
+  return await chat.get().matrix.getRoomTags(conversations);
+}
+
+export async function createUnencryptedConversation(
+  users: User[],
+  name: string,
+  image: File,
+  optimisticId: string,
+  groupType?: string
+) {
+  return chat.get().matrix.createUnencryptedConversation(users, name, image, optimisticId, groupType);
+}
+
+export async function sendPostByChannelId(channelId: string, message: string, optimisticId?: string) {
+  return chat.get().matrix.sendPostsByChannelId(channelId, message, optimisticId);
+}
+
+export async function getPostMessagesByChannelId(channelId: string, lastCreatedAt?: number) {
+  return chat.get().matrix.getPostMessagesByChannelId(channelId, lastCreatedAt);
+}
+
+export async function sendMeowReactionEvent(
+  roomId: string,
+  postMessageId: string,
+  postOwnerId: string,
+  meowAmount: number
+) {
+  return chat.get().matrix.sendMeowReactionEvent(roomId, postMessageId, postOwnerId, meowAmount);
+}
+
+export async function sendEmojiReactionEvent(roomId: string, messageId: string, key: string) {
+  return chat.get().matrix.sendEmojiReactionEvent(roomId, messageId, key);
+}
+
+export async function getPostMessageReactions(roomId: string) {
+  return chat.get().matrix.getPostMessageReactions(roomId);
+}
+
+export async function getMessageEmojiReactions(roomId: string) {
+  return chat.get().matrix.getMessageEmojiReactions(roomId);
+}
+
+export async function uploadFile(file: File): Promise<string> {
+  return chat.get().matrix.uploadFile(file);
+}
+
+export async function downloadFile(fileUrl: string) {
+  return chat.get().matrix.downloadFile(fileUrl);
+}
+
+export async function batchDownloadFiles(
+  fileUrls: string[],
+  isThumbnail: boolean = false,
+  batchSize: number = 25
+): Promise<{ [fileUrl: string]: string }> {
+  return chat.get().matrix.batchDownloadFiles(fileUrls, isThumbnail, batchSize);
+}
+
+export async function editProfile(profileInfo: MatrixProfileInfo) {
+  return chat.get().matrix.editProfile(profileInfo);
+}
+
+export function getAccessToken(): string | null {
+  return chat.get().matrix.getAccessToken();
+}
+
+export function mxcUrlToHttp(mxcUrl: string): string {
+  return chat.get().matrix.mxcUrlToHttp(mxcUrl);
+}
+
+export function getProfileInfo(userId: string): Promise<{
+  avatar_url?: string;
+  displayname?: string;
+}> {
+  return chat.get().matrix.getProfileInfo(userId);
+}
+
+export async function getAliasForRoomId(roomId: string) {
+  return chat.get().matrix.getAliasForRoomId(roomId);
 }

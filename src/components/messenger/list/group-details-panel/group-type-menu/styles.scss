@@ -1,0 +1,40 @@
+@use '~@zero-tech/zui/styles/theme' as theme;
+@import '../../../../../glass';
+@import '../../../../../animation';
+
+.group-type-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  &__select-input-container {
+    > *:last-child {
+      > div {
+        min-width: 236px;
+        gap: 8px;
+      }
+    }
+  }
+
+  &__select-input-label-container {
+    @include glass-text-secondary-color;
+
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    font-size: 10px;
+
+    &:hover {
+      cursor: pointer;
+    }
+  }
+
+  &__icon-button {
+    @include glass-text-secondary-color;
+  }
+
+  &__dropdown {
+    width: 222px;
+  }
+}

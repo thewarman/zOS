@@ -5,11 +5,10 @@ import { takeEveryFromBus } from '../../lib/saga';
 import { Events as ChatEvents, getChatBus } from '../chat/bus';
 import { currentUserSelector } from '../authentication/saga';
 import {
-  addRoomToFavorites,
-  removeRoomFromFavorites,
   chat,
   sendTypingEvent as matrixSendUserTypingEvent,
-  setReadReceiptPreference,
+  addRoomToLabel,
+  removeRoomFromLabel,
 } from '../../lib/chat';
 import { mostRecentConversation } from '../channels-list/selectors';
 import { setActiveConversation } from '../chat/saga';
@@ -22,6 +21,9 @@ import { getLocalZeroUsersMap } from '../messages/saga';
 import { userByMatrixIdSelector } from '../users/selectors';
 import { rawChannel } from './selectors';
 import cloneDeep from 'lodash/cloneDeep';
+import { getHistory } from '../../lib/browser';
+import { startPollingPosts } from '../posts/saga';
+import { setLastActiveConversation, getLastActiveConversation } from '../../lib/last-conversation';
 
 export const rawChannelSelector = (channelId) => (state) => {
   return getDeepProperty(state, `normalized.channels['${channelId}']`, null);
@@ -35,7 +37,7 @@ export function* markAllMessagesAsRead(channelId, userId) {
   const chatClient = yield call(chat.get);
   try {
     yield call([chatClient, chatClient.markRoomAsRead], channelId, userId);
-    yield call(receiveChannel, { id: channelId, unreadCount: 0 });
+    yield call(receiveChannel, { id: channelId, unreadCount: { total: 0, highlight: 0 } });
   } catch (error) {}
 }
 
@@ -43,12 +45,31 @@ export function* markAllMessagesAsRead(channelId, userId) {
 export function* markConversationAsRead(conversationId) {
   const currentUser = yield select(currentUserSelector());
   const conversationInfo = yield select(rawChannelSelector(conversationId));
-  if (conversationInfo?.unreadCount > 0) {
+
+  // We should only mark as read if the user is in the Messenger or Feed app and not in the notifications feed
+  const history = yield call(getHistory);
+  const isMessengerAppActive = history.location?.pathname?.startsWith('/conversation/');
+  const isFeedAppActive = history.location?.pathname?.startsWith('/feed/');
+
+  if (
+    (conversationInfo?.unreadCount?.total > 0 || conversationInfo?.unreadCount?.highlight > 0) &&
+    (isMessengerAppActive || isFeedAppActive)
+  ) {
     yield call(markAllMessagesAsRead, conversationId, currentUser.id);
   }
 }
 
 export function* openFirstConversation() {
+  const lastConversationId = yield call(getLastActiveConversation);
+
+  if (lastConversationId) {
+    const conversation = yield select(rawChannelSelector(lastConversationId));
+    if (conversation) {
+      yield call(openConversation, lastConversationId);
+      return;
+    }
+  }
+
   const conversation = yield select(mostRecentConversation);
   if (conversation) {
     yield call(openConversation, conversation.id);
@@ -63,13 +84,18 @@ export function* openConversation(conversationId) {
     return;
   }
 
+  yield call(setLastActiveConversation, conversationId);
   yield call(setActiveConversation, conversationId);
   yield spawn(markConversationAsRead, conversationId);
   yield call(resetConversationManagement);
+  yield call(startPollingPosts, conversationId);
 }
 
 export function* unreadCountUpdated(action) {
-  const { channelId, unreadCount } = action.payload;
+  const {
+    channelId,
+    unreadCount: { total, highlight },
+  } = action.payload;
 
   const channel = yield select(rawChannelSelector(channelId));
 
@@ -77,7 +103,7 @@ export function* unreadCountUpdated(action) {
     return;
   }
 
-  yield call(receiveChannel, { id: channelId, unreadCount: unreadCount });
+  yield call(receiveChannel, { id: channelId, unreadCount: { total, highlight } });
 }
 
 export function* onReply(reply: ParentMessage) {
@@ -112,39 +138,38 @@ export function* receiveChannel(channel: Partial<Channel>) {
   yield put(rawReceive(data));
 }
 
-export function* onFavoriteRoom(action) {
-  const { roomId } = action.payload;
+export function* onAddLabel(action) {
+  const { roomId, label } = action.payload;
   try {
-    yield call(addRoomToFavorites, roomId);
+    yield call(addRoomToLabel, roomId, label);
   } catch (error) {
-    console.error(`Failed to add room ${roomId} to favorites:`, error);
+    console.error(`Failed to add label ${label} to room ${roomId}:`, error);
   }
 }
 
-export function* onUnfavoriteRoom(action) {
-  const { roomId } = action.payload;
+export function* onRemoveLabel(action) {
+  const { roomId, label } = action.payload;
   try {
-    yield call(removeRoomFromFavorites, roomId);
+    yield call(removeRoomFromLabel, roomId, label);
   } catch (error) {
-    console.error(`Failed to remove room ${roomId} from favorites:`, error);
+    console.error(`Failed to remove label ${label} from room ${roomId}:`, error);
   }
 }
 
-export function* roomFavorited(action) {
-  const { roomId } = action.payload;
+export function* roomLabelChange(action) {
+  const { roomId, labels } = action.payload;
   try {
-    yield call(receiveChannel, { id: roomId, isFavorite: true });
-  } catch (error) {
-    console.error(`Failed to update favorite status for room ${roomId}:`, error);
-  }
-}
+    const channel = yield select(rawChannelSelector(roomId));
+    const currentLabels = channel?.labels || [];
 
-export function* roomUnfavorited(action) {
-  const { roomId } = action.payload;
-  try {
-    yield call(receiveChannel, { id: roomId, isFavorite: false });
+    const newLabels = labels.filter((label) => !currentLabels?.includes(label));
+    const removedLabels = currentLabels?.filter((label) => !labels.includes(label));
+
+    const updatedLabels = [...currentLabels?.filter((label) => !removedLabels?.includes(label)), ...newLabels];
+
+    yield call(receiveChannel, { id: roomId, labels: updatedLabels });
   } catch (error) {
-    console.error(`Failed to update unfavorite status for room ${roomId}:`, error);
+    console.error(`Failed to update label status for room ${roomId}:`, error);
   }
 }
 
@@ -221,15 +246,6 @@ export function* receivedRoomMemberPowerLevelChanged(action) {
   yield call(receiveChannel, { id: roomId, moderatorIds });
 }
 
-export function* onSetReadReceiptPreference(action) {
-  const { preference } = action.payload;
-  try {
-    yield call(setReadReceiptPreference, preference);
-  } catch (error) {
-    console.error('Failed to set read receipt preference:', error);
-  }
-}
-
 export function* saga() {
   yield spawn(listenForMessageSent);
   yield leadingDebounce(4000, SagaActionTypes.UserTypingInRoom, publishUserTypingEvent);
@@ -237,14 +253,12 @@ export function* saga() {
   yield takeLatest(SagaActionTypes.OpenConversation, ({ payload }: any) => openConversation(payload.conversationId));
   yield takeLatest(SagaActionTypes.OnReply, ({ payload }: any) => onReply(payload.reply));
   yield takeLatest(SagaActionTypes.OnRemoveReply, onRemoveReply);
-  yield takeLatest(SagaActionTypes.OnFavoriteRoom, onFavoriteRoom);
-  yield takeLatest(SagaActionTypes.OnUnfavoriteRoom, onUnfavoriteRoom);
-  yield takeLatest(SagaActionTypes.OnSetReadReceiptPreference, onSetReadReceiptPreference);
+  yield takeLatest(SagaActionTypes.OnAddLabel, onAddLabel);
+  yield takeLatest(SagaActionTypes.OnRemoveLabel, onRemoveLabel);
 
   yield takeEveryFromBus(yield call(getChatBus), ChatEvents.UnreadCountChanged, unreadCountUpdated);
-  yield takeEveryFromBus(yield call(getChatBus), ChatEvents.RoomFavorited, roomFavorited);
-  yield takeEveryFromBus(yield call(getChatBus), ChatEvents.RoomUnfavorited, roomUnfavorited);
   yield takeEveryFromBus(yield call(getChatBus), ChatEvents.RoomMemberTyping, receivedRoomMembersTyping);
+  yield takeEveryFromBus(yield call(getChatBus), ChatEvents.RoomLabelChange, roomLabelChange);
   yield takeEveryFromBus(
     yield call(getChatBus),
     ChatEvents.RoomMemberPowerLevelChanged,

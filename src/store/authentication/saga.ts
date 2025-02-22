@@ -10,12 +10,12 @@ import {
 import { clearChannelsAndConversations } from '../channels-list/saga';
 import { clearUsers } from '../users/saga';
 import { clearMessages } from '../messages/saga';
-import { updateConnector } from '../web3/saga';
-import { Connectors } from '../../lib/web3';
 import { Events, getAuthChannel } from './channels';
 import { getHistory } from '../../lib/browser';
 import { completePendingUserProfile } from '../registration/saga';
 import { closeUserProfile } from '../user-profile/saga';
+import { clearLastActiveConversation } from '../../lib/last-conversation';
+import { clearLastActiveTab } from '../../lib/last-tab';
 
 export const currentUserSelector = () => (state) => {
   return getDeepProperty(state, 'authentication.user.data', null);
@@ -110,7 +110,8 @@ export function* closeLogoutModal() {
 
 export function* forceLogout() {
   yield closeLogoutModal();
-  yield call(updateConnector, { payload: Connectors.None });
+  yield call(clearLastActiveConversation);
+  yield call(clearLastActiveTab);
   yield call(terminate);
 }
 

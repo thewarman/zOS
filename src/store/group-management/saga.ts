@@ -4,6 +4,7 @@ import {
   chat,
   setUserAsModerator as matrixSetUserAsModerator,
   removeUserAsModerator as matrixRemoveUserAsModerator,
+  uploadFile,
 } from '../../lib/chat';
 import { Events, getAuthChannel } from '../authentication/channels';
 import { denormalize as denormalizeUsers } from '../users';
@@ -27,8 +28,9 @@ import {
   MemberManagementAction,
 } from './index';
 import { EditConversationState } from './types';
-import { uploadImage } from '../registration/api';
 import { isSecondarySidekickOpenSelector } from './selectors';
+import { closeOverview as closeMessageInfo } from '../message-info/saga';
+import { rawChannelSelector } from '../channels/saga';
 
 export function* reset() {
   yield put(setStage(Stage.None));
@@ -37,6 +39,8 @@ export function* reset() {
   yield put(setEditConversationState(EditConversationState.NONE));
   yield put(setEditConversationImageError(''));
   yield put(setEditConversationGeneralError(''));
+
+  yield call(closeMessageInfo);
 }
 
 export function* saga() {
@@ -221,8 +225,7 @@ export function* editConversationNameAndIcon(action) {
     let imageUrl = '';
     if (image) {
       try {
-        const uploadResult = yield call(uploadImage, image);
-        imageUrl = uploadResult.url;
+        imageUrl = yield call(uploadFile, image);
       } catch (error) {
         yield put(setEditConversationImageError('Failed to upload image, please try again...'));
         return;
@@ -261,4 +264,16 @@ export function* toggleIsSecondarySidekick() {
   }
 
   yield put(setSecondarySidekickOpen(!isOpen));
+}
+
+export function* openSidekickForSocialChannel(conversationId) {
+  const channel = yield select(rawChannelSelector(conversationId));
+
+  if (channel?.isSocialChannel) {
+    const isSidekickOpen = yield select(isSecondarySidekickOpenSelector);
+
+    if (!isSidekickOpen) {
+      yield put(setSecondarySidekickOpen(true));
+    }
+  }
 }

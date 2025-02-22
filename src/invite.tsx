@@ -12,7 +12,7 @@ import { AndroidDownload } from './authentication/android-download';
 import { config } from './config';
 import { setShowAndroidDownload } from './store/page-load';
 
-import { ReactComponent as ZeroLogo } from './zero-logo.svg';
+import ZeroLogo from './zero-logo.svg?react';
 import { ThemeEngine, Themes } from '@zero-tech/zui/components/ThemeEngine';
 
 import { bemClassName } from './lib/bem';
@@ -35,7 +35,7 @@ export class Container extends React.Component<Properties> {
       stage: registration.stage,
       shouldRender: pageload.isComplete,
       showAndroidDownload: pageload.showAndroidDownload,
-      androidStorePath: config.androidStorePath,
+      androidStorePath: config.googlePlayStorePath,
     };
   }
 

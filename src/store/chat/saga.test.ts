@@ -10,7 +10,7 @@ import {
   setWhenUserJoinedRoom,
   waitForChatConnectionCompletion,
 } from './saga';
-import { openFirstConversation } from '../channels/saga';
+import { markConversationAsRead, openFirstConversation } from '../channels/saga';
 import { rootReducer } from '../reducer';
 import { StoreBuilder } from '../test/store';
 import { User } from '../channels';
@@ -20,6 +20,8 @@ import { ERROR_DIALOG_CONTENT, JoinRoomApiErrorCode, translateJoinRoomApiError }
 import { getRoomIdForAlias, isRoomMember } from '../../lib/chat';
 import { joinRoom as apiJoinRoom } from './api';
 import { call } from 'redux-saga/effects';
+import { openSidekickForSocialChannel } from '../group-management/saga';
+import { getHistory } from '../../lib/browser';
 
 describe(performValidateActiveConversation, () => {
   function subject(...args: Parameters<typeof expectSaga>) {
@@ -27,6 +29,12 @@ describe(performValidateActiveConversation, () => {
       [matchers.call.fn(getRoomIdForAlias), 'room-id'],
       [matchers.call.fn(joinRoom), undefined],
       [matchers.call.fn(openFirstConversation), null],
+      [
+        matchers.call.fn(getHistory),
+        {
+          location: { pathname: '/conversation/some-id' },
+        },
+      ],
     ]);
   }
 
@@ -63,10 +71,18 @@ describe(performValidateActiveConversation, () => {
       .withReducer(rootReducer, initialState.build())
       .provide([
         [matchers.call.fn(getRoomIdForAlias), conversationId],
+        [matchers.call.fn(markConversationAsRead), undefined],
+        [
+          matchers.call.fn(getHistory),
+          {
+            location: { pathname: '/conversation/some-id' },
+          },
+        ],
       ])
       .call(getRoomIdForAlias, '#' + alias)
       .not.call(apiJoinRoom, conversationId)
       .put(rawSetActiveConversationId(conversationId))
+      .call(markConversationAsRead, conversationId)
       .run();
 
     expect(storeState.chat.activeConversationId).toBe(conversationId);
@@ -110,6 +126,53 @@ describe(performValidateActiveConversation, () => {
         [matchers.call.fn(joinRoom), undefined],
       ])
       .call(joinRoom, '#some-other-convo:matrix.org')
+      .run();
+  });
+
+  it('opens first conversation when social channel is accessed from messenger app', async () => {
+    const initialState = new StoreBuilder().withCurrentUser({ id: 'current-user' }).withConversationList({
+      id: 'social-channel',
+      name: 'Social Channel',
+      isSocialChannel: true,
+    });
+
+    await subject(performValidateActiveConversation, 'social-channel')
+      .withReducer(rootReducer, initialState.build())
+      .provide([
+        [matchers.call.fn(getRoomIdForAlias), 'social-channel'],
+        [
+          matchers.call.fn(getHistory),
+          {
+            location: { pathname: '/conversation/social-channel' },
+          },
+        ],
+      ])
+      .call(openFirstConversation)
+      .run();
+  });
+
+  it('does not redirect social channel when accessed from feed app', async () => {
+    const initialState = new StoreBuilder().withCurrentUser({ id: 'current-user' }).withConversationList({
+      id: 'social-channel',
+      name: 'Social Channel',
+      isSocialChannel: true,
+    });
+
+    await subject(performValidateActiveConversation, 'social-channel')
+      .withReducer(rootReducer, initialState.build())
+      .provide([
+        [matchers.call.fn(getRoomIdForAlias), 'social-channel'],
+        [
+          matchers.call.fn(getHistory),
+          {
+            location: { pathname: '/feed/social-channel' },
+          },
+        ],
+        [matchers.call.fn(markConversationAsRead), undefined],
+      ])
+      .put(rawSetActiveConversationId('social-channel'))
+      .call(markConversationAsRead, 'social-channel')
+      .not.call(openFirstConversation)
       .run();
   });
 });
@@ -241,11 +304,15 @@ describe(validateActiveConversation, () => {
   it('waits for channel load before validating', async () => {
     testSaga(validateActiveConversation, 'convo-1')
       .next()
+      .put(clearJoinRoomErrorContent())
+      .next()
       .put(setIsJoiningConversation(true))
       .next()
       .call(waitForChatConnectionCompletion)
       .next(true)
       .call(performValidateActiveConversation, 'convo-1')
+      .next()
+      .spawn(openSidekickForSocialChannel, 'convo-1')
       .next()
       .put(setIsJoiningConversation(false))
       .next()
@@ -254,6 +321,8 @@ describe(validateActiveConversation, () => {
 
   it('does not validate if channel load fails', async () => {
     testSaga(validateActiveConversation, 'convo-1')
+      .next()
+      .put(clearJoinRoomErrorContent())
       .next()
       .put(setIsJoiningConversation(true))
       .next()

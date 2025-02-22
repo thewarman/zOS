@@ -18,7 +18,7 @@ export function createOptimisticMessageObject(
   messageText: string,
   user: User,
   parentMessage: ParentMessage = null,
-  file?: { name: string; url: string; mediaType: MediaType; giphy: any },
+  file?: { name: string; url: string; mediaType: MediaType; giphy: any; nativeFile: File },
   rootMessageId?: string
 ): Message {
   const id = uuidv4();
@@ -28,6 +28,7 @@ export function createOptimisticMessageObject(
       type: file.mediaType,
       url: file.giphy ? file.giphy.images.downsized.url : file.url,
       name: file.name,
+      mimetype: file.nativeFile ? file.nativeFile.type : null,
       // Not sure why these are in our types as I don't think we use them at all
       // I'm guessing this is for rendering a loaded message when the image hasn't downloaded yet
       // but we're not doing that yet.
@@ -47,6 +48,7 @@ export function createOptimisticMessageObject(
     isAdmin: false,
     parentMessageText: parentMessage ? parentMessage.message : '',
     parentMessage,
+    parentMessageMedia: parentMessage ? parentMessage.media : null,
     sender: {
       userId: user.id,
       firstName: user.profileSummary.firstName,
@@ -59,6 +61,7 @@ export function createOptimisticMessageObject(
     preview: null,
     media,
     sendStatus: MessageSendStatus.IN_PROGRESS,
+    isPost: false,
   };
 }
 

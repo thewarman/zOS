@@ -7,10 +7,6 @@ import { LeaveGroupDialogStatus } from '../../../store/group-management';
 import { MessageInput } from '../../message-input/container';
 import { Media } from '../../message-input/utils';
 import { LeaveGroupDialogContainer } from '../../group-management/leave-group-dialog/container';
-import { JoiningConversationDialog } from '../../joining-conversation-dialog';
-
-import { StoreBuilder, stubAuthenticatedUser, stubConversation, stubUser } from '../../../store/test/store';
-import { ConversationHeader } from './conversation-header';
 
 const mockSearchMentionableUsersForChannel = jest.fn();
 jest.mock('../../../platform-apps/channels/util/api', () => {
@@ -27,14 +23,9 @@ describe(DirectMessageChat, () => {
       activeConversationId: '1',
       leaveGroupDialogStatus: LeaveGroupDialogStatus.CLOSED,
       directMessage: { id: '1', otherMembers: [] } as any,
-      canLeaveRoom: false,
-      canEdit: false,
-      canAddMembers: false,
-      canViewDetails: false,
       isSecondarySidekickOpen: false,
       sendMessage: () => null,
       onRemoveReply: () => null,
-      isCurrentUserRoomAdmin: false,
       isJoiningConversation: false,
       startAddGroupMember: () => null,
       startEditConversation: () => null,
@@ -42,6 +33,8 @@ describe(DirectMessageChat, () => {
       viewGroupInformation: () => null,
       toggleSecondarySidekick: () => null,
       otherMembersTypingInRoom: [],
+      onAddLabel: () => null,
+      onRemoveLabel: () => null,
       ...props,
     };
 
@@ -52,43 +45,6 @@ describe(DirectMessageChat, () => {
     const wrapper = subject({ activeConversationId: '123' });
 
     expect(wrapper.find(ChatViewContainer)).toHaveProp('channelId', '123');
-  });
-
-  it('renders JoiningConversationDialog when isJoiningConversation is true', () => {
-    const wrapper = subject({ isJoiningConversation: true });
-
-    expect(wrapper).toHaveElement(JoiningConversationDialog);
-  });
-
-  it('does not render ChatViewContainer when isJoiningConversation is true', () => {
-    const wrapper = subject({ isJoiningConversation: true });
-
-    expect(wrapper).not.toHaveElement(ChatViewContainer);
-  });
-
-  it('renders ChatViewContainer when isJoiningConversation is false', () => {
-    const wrapper = subject({
-      isJoiningConversation: false,
-      activeConversationId: '123',
-      directMessage: { otherMembers: [stubUser({ firstName: 'Johnny', lastName: 'Sanderson' })] } as Channel,
-    });
-
-    expect(wrapper).toHaveElement(ChatViewContainer);
-  });
-
-  it('does not render JoiningConversationDialog when isJoiningConversation is false', () => {
-    const wrapper = subject({ isJoiningConversation: false });
-
-    expect(wrapper).not.toHaveElement(JoiningConversationDialog);
-  });
-
-  it('calls start add group member', async function () {
-    const startAddGroupMember = jest.fn();
-    const wrapper = subject({ startAddGroupMember });
-
-    wrapper.find(ConversationHeader).simulate('addMember');
-
-    expect(startAddGroupMember).toHaveBeenCalledOnce();
   });
 
   describe('leave group dialog', () => {
@@ -184,106 +140,6 @@ describe(DirectMessageChat, () => {
       await input.prop('getUsersForMentions')('bob');
 
       expect(mockSearchMentionableUsersForChannel).toHaveBeenCalledWith('5', 'bob', []);
-    });
-  });
-
-  describe('mapState', () => {
-    describe('canLeaveRoom', () => {
-      it('is false when only when one other member', () => {
-        const state = new StoreBuilder().withActiveConversation(stubConversation({ otherMembers: [stubUser()] }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canLeaveRoom: false }));
-      });
-
-      it('is false when user is admin', () => {
-        const state = new StoreBuilder()
-          .withActiveConversation(
-            stubConversation({ otherMembers: [stubUser(), stubUser()], adminMatrixIds: ['current-user-matrix-id'] })
-          )
-          .withCurrentUser(stubAuthenticatedUser({ matrixId: 'current-user-matrix-id' }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canLeaveRoom: false }));
-      });
-
-      it('is true when user is not admin and more than one other member', () => {
-        const state = new StoreBuilder()
-          .withActiveConversation(
-            stubConversation({ otherMembers: [stubUser(), stubUser()], adminMatrixIds: ['other-user-matrix-id'] })
-          )
-          .withCurrentUser(stubAuthenticatedUser({ matrixId: 'current-user-matrix-id' }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canLeaveRoom: true }));
-      });
-    });
-
-    describe('canEdit', () => {
-      it('is false when one on one conversation', () => {
-        const state = new StoreBuilder().withActiveConversation(stubConversation({ isOneOnOne: true }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canEdit: false }));
-      });
-
-      it('is false when current user is not room admin', () => {
-        const state = new StoreBuilder()
-          .withActiveConversation(stubConversation({ isOneOnOne: false, adminMatrixIds: ['other-user-matrix-id'] }))
-          .withCurrentUser(stubAuthenticatedUser({ matrixId: 'current-user-matrix-id' }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canEdit: false }));
-      });
-
-      it('is true when current user is room admin', () => {
-        const state = new StoreBuilder()
-          .withActiveConversation(stubConversation({ isOneOnOne: false, adminMatrixIds: ['current-user-matrix-id'] }))
-          .withCurrentUser(stubAuthenticatedUser({ matrixId: 'current-user-matrix-id' }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canEdit: true }));
-      });
-
-      it('is true when current user is room moderator', () => {
-        const state = new StoreBuilder()
-          .withActiveConversation(stubConversation({ isOneOnOne: false, moderatorIds: ['current-user-id'] }))
-          .withCurrentUser(stubAuthenticatedUser({ id: 'current-user-id' }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canEdit: true }));
-      });
-    });
-
-    describe('canAddMembers', () => {
-      it('is false when one on one conversation', () => {
-        const state = new StoreBuilder().withActiveConversation(stubConversation({ isOneOnOne: true }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canAddMembers: false }));
-      });
-
-      it('is false when current user is not room admin', () => {
-        const state = new StoreBuilder()
-          .withActiveConversation(stubConversation({ isOneOnOne: false, adminMatrixIds: ['other-user-matrix-id'] }))
-          .withCurrentUser(stubAuthenticatedUser({ matrixId: 'current-user-matrix-id' }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canAddMembers: false }));
-      });
-
-      it('is true when current user is room admin', () => {
-        const state = new StoreBuilder()
-          .withActiveConversation(stubConversation({ isOneOnOne: false, adminMatrixIds: ['current-user-matrix-id'] }))
-          .withCurrentUser(stubAuthenticatedUser({ matrixId: 'current-user-matrix-id' }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canAddMembers: true }));
-      });
-    });
-
-    describe('canViewDetails', () => {
-      it('is false when one on one conversation', () => {
-        const state = new StoreBuilder().withActiveConversation(stubConversation({ isOneOnOne: true }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canViewDetails: false }));
-      });
-
-      it('is true when not a one on one conversation', () => {
-        const state = new StoreBuilder().withActiveConversation(stubConversation({ isOneOnOne: false }));
-
-        expect(DirectMessageChat.mapState(state.build())).toEqual(expect.objectContaining({ canViewDetails: true }));
-      });
     });
   });
 });
